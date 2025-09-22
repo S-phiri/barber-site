@@ -1,113 +1,117 @@
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { loginApi, registerApi, getMe, logoutApi } from '@/lib/api';
+import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import {
+  login as apiLogin,
+  register as apiRegister,
+  refreshTokenApi as apiRefreshToken,
+  setAuthHelpers,
+} from "@/lib/api";
 
-interface User {
-  id: number;
-  username: string;
-  email: string;
-  first_name?: string;
-  last_name?: string;
-}
-
-interface AuthContextType {
+type AuthContextType = {
   ready: boolean;
-  user: User | null;
   access: string | null;
-  login: (username: string, password: string) => Promise<void>;
+  refresh: string | null;
+  user: any | null;
+  login: (id: string, password: string) => Promise<void>;
   register: (username: string, email: string, password: string) => Promise<void>;
-  logout: () => Promise<void>;
-}
+  logout: () => void;
+};
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-interface AuthProviderProps {
-  children: ReactNode;
-}
-
-export function AuthProvider({ children }: AuthProviderProps) {
+export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
-  const [user, setUser] = useState<User | null>(null);
   const [access, setAccess] = useState<string | null>(null);
+  const [refresh, setRefresh] = useState<string | null>(null);
+  const [user, setUser] = useState<any | null>(null);
 
-  // Hydrate user on load
   useEffect(() => {
-    const hydrateUser = async () => {
-      try {
-        const response = await getMe();
-        setUser(response); // Direct response, not response.data
-        setAccess('session'); // Session-based auth indicator
-      } catch (error) {
-        // User not authenticated
-        setUser(null);
-        setAccess(null);
-      } finally {
-        setReady(true);
-      }
-    };
-
-    hydrateUser();
+    setAccess(localStorage.getItem("access"));
+    setRefresh(localStorage.getItem("refresh"));
+    setReady(true);
   }, []);
 
-  const login = async (username: string, password: string) => {
-    try {
-      // Login with session cookies
-      await loginApi({ 
-        username: username.trim(), 
-        password 
+  useEffect(() => {
+    access ? localStorage.setItem("access", access) : localStorage.removeItem("access");
+  }, [access]);
+  
+  useEffect(() => {
+    refresh ? localStorage.setItem("refresh", refresh) : localStorage.removeItem("refresh");
+  }, [refresh]);
+
+  useEffect(() => {
+    setAuthHelpers(
+      () => access,
+      async () => {
+        if (!refresh) return false;
+        try {
+          const res = await apiRefreshToken(refresh);
+          if (!res?.access) return false;
+          setAccess(res.access);
+          return true;
+        } catch {
+          setAccess(null);
+          setRefresh(null);
+          return false;
+        }
+      }
+    );
+  }, [access, refresh]);
+
+  // Fetch user when access token is available AND auth helpers are set
+  useEffect(() => {
+    if (access && !user) {
+      // Import me function dynamically to avoid circular dependency
+      import("@/lib/api").then(({ me }) => {
+        me().then(setUser).catch(() => setUser(null));
       });
-      
-      // Set session indicator
-      setAccess('session');
-      
-      // Fetch user data
-      const userResponse = await getMe();
-      setUser(userResponse); // Direct response, not userResponse.data
-    } catch (error: any) {
-      throw new Error(error.message || 'Login failed');
-    }
-  };
-
-  const register = async (username: string, email: string, password: string) => {
-    try {
-      // Register user
-      await registerApi({ username: username.trim(), email: email.trim(), password });
-      
-      // Auto-login after successful registration
-      await login(username, password);
-    } catch (error: any) {
-      throw new Error(error.message || 'Registration failed');
-    }
-  };
-
-  const logout = async () => {
-    try {
-      await logoutApi();
-    } catch (error) {
-      // Continue with logout even if API call fails
-      console.warn('Logout API call failed:', error);
-    } finally {
-      // Clear local state
+    } else if (!access) {
       setUser(null);
-      setAccess(null);
     }
-  };
+  }, [access, user]);
 
-  const value: AuthContextType = {
-    ready,
-    user,
-    access,
-    login,
-    register,
-    logout,
-  };
+  const value = useMemo<AuthContextType>(() => ({
+    ready, access, refresh, user,
+    async login(id: string, password: string) {
+      const tokens = await apiLogin(id.trim(), password);
+      setAccess(tokens.access);
+      if ((tokens as any).refresh) setRefresh((tokens as any).refresh);
+      setAuthHelpers(
+        () => tokens.access,
+        async () => {
+          const r = (tokens as any).refresh || localStorage.getItem("refresh");
+          if (!r) return false;
+          try {
+            const res = await apiRefreshToken(r);
+            if (!res?.access) return false;
+            setAccess(res.access);
+            setAuthHelpers(() => res.access, () => Promise.resolve(true));
+            return true;
+          } catch {
+            setAccess(null); 
+            setRefresh(null);
+            return false;
+          }
+        }
+      );
+    },
+    async register(username, email, password) {
+      const out = await apiRegister({ username: username.trim(), email: email.trim(), password });
+      setAccess(out.access); 
+      setRefresh(out.refresh);
+      setAuthHelpers(() => out.access, () => Promise.resolve(true));
+    },
+    logout() { 
+      setAccess(null); 
+      setRefresh(null); 
+      setUser(null);
+    },
+  }), [ready, access, refresh, user]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error("useAuth must be used within <AuthProvider>");
+  return ctx;
 }

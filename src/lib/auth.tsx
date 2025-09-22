@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from "
 import {
   login as apiLogin,
   register as apiRegister,
-  refreshToken as apiRefreshToken,
+  refreshTokenApi as apiRefreshToken,
   setAuthHelpers,
 } from "@/lib/api";
 
@@ -10,6 +10,7 @@ type AuthContextType = {
   ready: boolean;
   access: string | null;
   refresh: string | null;
+  user: any | null;
   login: (id: string, password: string) => Promise<void>;
   register: (username: string, email: string, password: string) => Promise<void>;
   logout: () => void;
@@ -21,6 +22,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
   const [access, setAccess] = useState<string | null>(null);
   const [refresh, setRefresh] = useState<string | null>(null);
+  const [user, setUser] = useState<any | null>(null);
 
   useEffect(() => {
     setAccess(localStorage.getItem("access"));
@@ -55,8 +57,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     );
   }, [access, refresh]);
 
+  // Fetch user when access token is available AND auth helpers are set
+  useEffect(() => {
+    if (access && !user) {
+      // Import me function dynamically to avoid circular dependency
+      import("@/lib/api").then(({ me }) => {
+        me().then(setUser).catch(() => setUser(null));
+      });
+    } else if (!access) {
+      setUser(null);
+    }
+  }, [access, user]);
+
   const value = useMemo<AuthContextType>(() => ({
-    ready, access, refresh,
+    ready, access, refresh, user,
     async login(id: string, password: string) {
       const tokens = await apiLogin({ username: id.trim(), password } as any);
       setAccess(tokens.access);
@@ -89,8 +103,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     logout() { 
       setAccess(null); 
       setRefresh(null); 
+      setUser(null);
     },
-  }), [ready, access, refresh]);
+  }), [ready, access, refresh, user]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

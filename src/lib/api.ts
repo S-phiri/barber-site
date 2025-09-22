@@ -3,6 +3,10 @@ import dayjs from "dayjs";
 
 const API_URL = "http://localhost:8000";
 
+// JWT token management
+let getAccessToken: (() => string | null) | null = null;
+let refreshToken: (() => Promise<boolean>) | null = null;
+
 function getCookie(name: string) {
   const m = document.cookie.match(new RegExp("(^|; )" + name + "=([^;]*)"));
   return m ? decodeURIComponent(m[2]) : null;
@@ -15,9 +19,19 @@ async function ensureCsrf() {
 }
 
 async function http(path: string, init: RequestInit = {}) {
+  const headers: Record<string, string> = { ...(init.headers || {}) };
+  
+  // Add JWT token if available
+  if (getAccessToken) {
+    const token = getAccessToken();
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+  }
+  
   return fetch(`${API_URL}${path}`, {
     credentials: "include",
-    headers: { ...(init.headers || {}) },
+    headers,
     ...init,
   });
 }
@@ -38,6 +52,31 @@ export async function login(username: string, password: string) {
   return res.json();
 }
 
+export async function register(username: string, email: string, password: string) {
+  await ensureCsrf();
+  const csrftoken = getCookie("csrftoken") || "";
+  const res = await http("/api/auth/register/", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-CSRFToken": csrftoken,
+    },
+    body: JSON.stringify({ username, email, password }),
+  });
+  if (!res.ok) throw new Error(`Registration failed: ${res.status}`);
+  return res.json();
+}
+
+export async function refreshTokenApi(refresh: string) {
+  const res = await http("/api/auth/token/refresh/", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refresh }),
+  });
+  if (!res.ok) throw new Error("Token refresh failed");
+  return res.json();
+}
+
 export async function logout() {
   await ensureCsrf();
   const csrftoken = getCookie("csrftoken") || "";
@@ -51,7 +90,7 @@ export async function logout() {
 
 export async function me() {
   const res = await http("/api/auth/me/");
-  if (res.status === 403) return null;
+  if (res.status === 401 || res.status === 403) return null;
   if (!res.ok) throw new Error("Failed to fetch user");
   return res.json();
 }
@@ -61,10 +100,15 @@ export const loginApi = (p: { username: string; password: string }) => login(p.u
 export const logoutApi = logout;
 export const getMe = me;
 export const initCsrf = ensureCsrf;
-export const registerApi = (p: { username: string; email: string; password: string }) => {
-  throw new Error("Registration not implemented");
-};
-export const setAuthHelpers = () => {}; // Stub function
+export const registerApi = (p: { username: string; email: string; password: string }) => register(p.username, p.email, p.password);
+// Set up JWT authentication helpers
+export function setAuthHelpers(
+  getToken: () => string | null,
+  refresh: () => Promise<boolean>
+) {
+  getAccessToken = getToken;
+  refreshToken = refresh;
+}
 
 /** ===== Booking ===== */
 export async function getServices() {

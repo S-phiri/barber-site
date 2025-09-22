@@ -17,7 +17,8 @@ Including another URLconf
 from django.contrib import admin
 from django.http import JsonResponse
 from django.urls import path, include
-from bookings.views import login_view, logout_view, me, csrf_token
+from bookings.auth_views import login, register, me  # Use JWT auth views
+from bookings.views import logout_view, csrf_token
 from barber.views import gcal_start_auth, gcal_callback
 
 def health(_):
@@ -29,9 +30,10 @@ urlpatterns = [
 
     path("api/health/", health),
     path("api/auth/csrf/", csrf_token),
-    path("api/auth/login/", login_view),
+    path("api/auth/login/", login),      # Use JWT login
+    path("api/auth/register/", register), # Add JWT register
     path("api/auth/logout/", logout_view),
-    path("api/auth/me/", me),
+    path("api/auth/me/", me),            # Use JWT me
     path("api/", include("bookings.urls")),
     path("api/gcal/start-auth/", gcal_start_auth),
     path("api/gcal/callback/", gcal_callback),
