@@ -50,4 +50,9 @@ def login(req):
 @permission_classes([IsAuthenticated])
 def me(req):
     u = req.user
-    return Response({"id": u.id, "username": u.username, "email": u.email})
+    return Response({
+        "id": u.id,
+        "username": u.username,
+        "email": u.email,
+        "is_staff": u.is_staff,
+    })

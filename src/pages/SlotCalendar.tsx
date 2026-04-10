@@ -22,7 +22,7 @@ export default function SlotCalendar() {
   // Redirect if missing required data
   useEffect(() => {
     if (!serviceId || !barberId) {
-      navigate("/services");
+      navigate("/booking");
     }
   }, [serviceId, barberId, navigate]);
 

@@ -8,14 +8,20 @@ interface BookingContextType extends BookingState {
   selectedService: Service | null;
   date: string;
   slots: TimeSlot[];
+  servicesLoading: boolean;
   loading: {
     init: boolean;
     services: boolean;
     slots: boolean;
     booking: boolean;
   };
+  setServiceId: (serviceId: number | null) => void;
+  setBarberId: (barberId: number | null) => void;
   setSelectedService: (service: Service | null) => void;
   setDate: (date: string) => void;
+  setSelectedDate: (selectedDate: string) => void;
+  setHeldSlot: (heldSlot: SlotHold | null) => void;
+  setSlotId: (slotId: number | null) => void;
   refreshSlots: () => Promise<void>;
   book: (slot: TimeSlot) => Promise<any>;
   resetBooking: () => void;
@@ -156,9 +162,15 @@ export function BookingProvider({ children }: BookingProviderProps) {
     selectedService,
     date,
     slots,
+    servicesLoading: loading.services,
     loading,
+    setServiceId,
+    setBarberId,
     setSelectedService,
     setDate,
+    setSelectedDate,
+    setHeldSlot,
+    setSlotId,
     refreshSlots,
     book,
     resetBooking,

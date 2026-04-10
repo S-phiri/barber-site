@@ -17,11 +17,11 @@ export default function CheckoutFailed() {
   };
 
   const handleViewBookings = () => {
-    navigate("/my-bookings");
+    navigate("/bookings");
   };
 
   const handleStartOver = () => {
-    navigate("/services");
+    navigate("/booking");
   };
 
   return (

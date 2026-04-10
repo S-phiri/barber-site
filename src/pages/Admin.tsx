@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/EmptyState";
-import { useAuth } from "@/auth";
+import { useAuth } from "@/contexts/auth";
 import { getAdminBookings } from "@/lib/api";
 import { toast } from "@/components/ui/use-toast";
 import type { AdminBooking } from "@/types/types";
@@ -45,7 +45,7 @@ export default function Admin() {
 
   useEffect(() => {
     if (!isAdmin) {
-      navigate("/services");
+      navigate("/booking");
       return;
     }
 
@@ -82,7 +82,7 @@ export default function Admin() {
   };
 
   const handleBackToBookings = () => {
-    navigate("/my-bookings");
+    navigate("/bookings");
   };
 
   if (loading) {

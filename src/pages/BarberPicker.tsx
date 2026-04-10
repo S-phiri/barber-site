@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Navigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { BarberCard } from "@/components/BarberCard";
@@ -15,8 +15,7 @@ export default function BarberPicker() {
 
   // Redirect if no service selected
   if (!serviceId) {
-    navigate("/services");
-    return null;
+    return <Navigate to="/booking" replace />;
   }
 
   const handleBarberSelect = (barber: Barber) => {
@@ -25,11 +24,11 @@ export default function BarberPicker() {
       barber_name: barber.display_name,
     });
     setBarberId(barber.id);
-    navigate("/calendar");
+    navigate("/booking/slots");
   };
 
   const handleBack = () => {
-    navigate("/services");
+    navigate("/booking");
   };
 
   if (loading) {

@@ -181,3 +181,18 @@ PAYFAST_NOTIFY_URL   = os.getenv("PAYFAST_NOTIFY_URL", "")
 
 # Optional: shop address for ICS feed / emails
 SHOP_ADDRESS = os.getenv("SHOP_ADDRESS", "Ramad Barbershop, Cape Town")
+
+# -----------------------------------------------------------------------------
+# Google Calendar Integration (read from .env)
+# -----------------------------------------------------------------------------
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
+GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/api/barber/google-calendar/callback/")
+
+# -----------------------------------------------------------------------------
+# Booking Provider Configuration (read from .env)
+# -----------------------------------------------------------------------------
+BOOKING_PROVIDER = os.getenv("BOOKING_PROVIDER", "google")  # google, fresha, custom
+
+# Fresha Configuration
+FRESHA_BOOKING_URL = os.getenv("FRESHA_BOOKING_URL", "")

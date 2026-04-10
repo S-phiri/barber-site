@@ -2,6 +2,7 @@
 import dayjs from "dayjs";
 
 const API_URL = "http://localhost:8000";
+const SERVER_BASE_URL = import.meta.env.VITE_SERVER_BASE_URL || "http://localhost:5174";
 
 // JWT token management
 let getAccessToken: (() => string | null) | null = null;
@@ -36,6 +37,21 @@ async function http(path: string, init: RequestInit = {}) {
   });
 }
 
+/** DRF often returns `{ detail: string | object[] }` on errors. */
+async function errorMessageFromResponse(res: Response, fallback: string): Promise<string> {
+  try {
+    const data = (await res.json()) as { detail?: unknown };
+    const d = data?.detail;
+    if (typeof d === "string" && d.trim()) return d;
+    if (Array.isArray(d) && d[0] && typeof (d[0] as { msg?: string }).msg === "string") {
+      return (d[0] as { msg: string }).msg;
+    }
+  } catch {
+    /* non-JSON body */
+  }
+  return fallback;
+}
+
 export async function login(username: string, password: string) {
   await ensureCsrf();
   const csrftoken = getCookie("csrftoken") || "";
@@ -47,8 +63,13 @@ export async function login(username: string, password: string) {
     },
     body: JSON.stringify({ username, password }),
   });
-  if (res.status === 400) throw new Error("Invalid credentials");
-  if (!res.ok) throw new Error(`Login failed: ${res.status}`);
+  if (!res.ok) {
+    const fallback =
+      res.status === 401 || res.status === 400
+        ? "Invalid username or password."
+        : `Login failed (${res.status})`;
+    throw new Error(await errorMessageFromResponse(res, fallback));
+  }
   return res.json();
 }
 
@@ -63,7 +84,15 @@ export async function register(username: string, email: string, password: string
     },
     body: JSON.stringify({ username, email, password }),
   });
-  if (!res.ok) throw new Error(`Registration failed: ${res.status}`);
+  if (!res.ok) {
+    const fallback =
+      res.status === 409
+        ? "This username is already taken. Sign in or choose a different username."
+        : res.status === 400
+          ? "Please enter a username and password."
+          : `Registration failed (${res.status})`;
+    throw new Error(await errorMessageFromResponse(res, fallback));
+  }
   return res.json();
 }
 
@@ -272,4 +301,56 @@ export async function getMyBookings() {
   return Array.isArray(data) ? data : (Array.isArray((data as any)?.results) ? (data as any).results : []);
 }
 
-export default { login, logout, me, ensureCsrf };
+// PayFast checkout functions
+export interface BookingData {
+  serviceId: string;
+  serviceName: string;
+  price: number;
+  barberId: string;
+  barberName: string;
+  dateISO: string;
+  startISO: string;
+  endISO: string;
+  customer: {
+    name: string;
+    email: string;
+    phone: string;
+  };
+}
+
+export interface CheckoutResponse {
+  redirectUrl: string;
+  bookingId: string;
+}
+
+export async function createCheckout(booking: BookingData): Promise<CheckoutResponse> {
+  const response = await fetch(`${SERVER_BASE_URL}/api/checkout`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ booking }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to create checkout' }));
+    throw new Error(error.error || 'Failed to create checkout');
+  }
+
+  return response.json();
+}
+
+export async function getBooking(bookingId: string) {
+  const response = await fetch(`${SERVER_BASE_URL}/api/bookings/${bookingId}`);
+  
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error('Booking not found');
+    }
+    throw new Error('Failed to fetch booking');
+  }
+
+  return response.json();
+}
+
+export default { login, logout, me, ensureCsrf, createCheckout, getBooking };

@@ -1,5 +1,10 @@
 from rest_framework import serializers
-from .models import Service, Slot, Booking, Product, Order, OrderItem, LoyaltyEntry
+from .models import Barber, Service, Slot, SlotHold, Booking, Product, Order, OrderItem, LoyaltyEntry
+
+class BarberSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Barber
+        fields = "__all__"
 
 class ServiceSerializer(serializers.ModelSerializer):
     class Meta:
@@ -21,7 +26,7 @@ class BookingSerializer(serializers.ModelSerializer):
         # Handle the case where we receive barber_id, service_id, and start
         # instead of slot_id
         if 'barber_id' in validated_data and 'service_id' in validated_data and 'start' in validated_data:
-            from .models import Slot, Service
+            from .models import Slot, Service, Barber
             from django.utils import timezone
             from datetime import datetime
             
@@ -37,18 +42,25 @@ class BookingSerializer(serializers.ModelSerializer):
             except Service.DoesNotExist:
                 raise serializers.ValidationError("Service not found")
             
+            # Get the barber
+            try:
+                barber = Barber.objects.get(id=barber_id)
+                validated_data['barber'] = barber
+            except Barber.DoesNotExist:
+                raise serializers.ValidationError("Barber not found")
+            
             # Parse the start time
             start_dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
             
             # Calculate end time based on service duration
-            duration_minutes = service.duration_min
+            duration_minutes = service.duration_minutes
             end_dt = start_dt + timezone.timedelta(minutes=duration_minutes)
             
             # Find or create the slot
             slot, created = Slot.objects.get_or_create(
-                start=start_dt,
-                barber_name="Ramad",  # For now, hardcoded to Ramad
-                defaults={'end': end_dt}
+                start_at=start_dt,
+                barber=barber,
+                defaults={'end_at': end_dt}
             )
             
             validated_data['slot'] = slot

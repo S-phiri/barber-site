@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useAuth } from "@/auth";
+import { useAuth } from "@/contexts/auth";
 
 interface DashboardData {
   visits: number;

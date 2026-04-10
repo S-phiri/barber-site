@@ -4,12 +4,12 @@ import { Spinner } from "@/components/ui/spinner";
 import { ServiceCard } from "@/components/ServiceCard";
 import { EmptyState } from "@/components/EmptyState";
 import { useBooking } from "@/contexts/BookingContext";
-import { useAuth } from "@/auth";
+import { useAuth } from "@/contexts/auth";
 import { track } from "@/lib/analytics";
 import type { Service } from "@/types/types";
 
 export default function Services() {
-  const { services, servicesLoading, setServiceId, resetBooking } = useBooking();
+  const { services, loading, setServiceId, setSelectedService, resetBooking } = useBooking();
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
@@ -23,8 +23,9 @@ export default function Services() {
       service_id: service.id,
       service_name: service.name,
     });
+    setSelectedService(service);
     setServiceId(service.id);
-    navigate("/barbers");
+    navigate("/booking/barbers");
   };
 
   const handleLogout = () => {
@@ -33,7 +34,7 @@ export default function Services() {
     navigate("/login");
   };
 
-  if (servicesLoading) {
+  if (loading.services) {
     return (
       <div className="bg-white min-h-screen flex items-center justify-center">
         <Spinner size="lg" />

@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Calendar Status - BBIT Barbershop</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .barber-card {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+            background: #f9f9f9;
+        }
+        .barber-name {
+            font-size: 18px;
+            font-weight: bold;
+            color: #333;
+        }
+        .status {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        .status.connected {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .status.disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .action-buttons {
+            margin-top: 10px;
+        }
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            margin-right: 10px;
+        }
+        .btn-primary {
+            background-color: #007bff;
+            color: white;
+        }
+        .btn-danger {
+            background-color: #dc3545;
+            color: white;
+        }
+        .btn:hover {
+            opacity: 0.8;
+        }
+        .instructions {
+            background-color: #e7f3ff;
+            border: 1px solid #b3d9ff;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .instructions h3 {
+            margin-top: 0;
+            color: #0066cc;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📅 Google Calendar Integration Status</h1>
+        
+        <div class="instructions">
+            <h3>📋 Setup Instructions:</h3>
+            <ol>
+                <li><strong>Create Google Cloud Project:</strong> Go to <a href="https://console.cloud.google.com/" target="_blank">Google Cloud Console</a></li>
+                <li><strong>Enable Calendar API:</strong> Enable Google Calendar API in your project</li>
+                <li><strong>Create OAuth Credentials:</strong> Create OAuth 2.0 credentials</li>
+                <li><strong>Add to .env file:</strong> Add your credentials to the .env file</li>
+                <li><strong>Connect Barber:</strong> Click "Connect Calendar" for each barber</li>
+            </ol>
+        </div>
+
+        <h2>Barber Calendar Status</h2>
+        
+        {% for barber in barber_status %}
+        <div class="barber-card">
+            <div class="barber-name">{{ barber.name }}</div>
+            <div>
+                Status: 
+                <span class="status {% if barber.is_connected %}connected{% else %}disconnected{% endif %}">
+                    {% if barber.is_connected %}✅ Connected{% else %}❌ Not Connected{% endif %}
+                </span>
+            </div>
+            
+            <div class="action-buttons">
+                {% if not barber.is_connected %}
+                    <a href="/api/barber/admin/google-calendar/auth/{{ barber.id }}/" class="btn btn-primary">
+                        🔗 Connect Calendar
+                    </a>
+                {% else %}
+                    <a href="/api/barber/google-calendar/disconnect/{{ barber.id }}/" class="btn btn-danger" 
+                       onclick="return confirm('Are you sure you want to disconnect this calendar?')">
+                        🔌 Disconnect Calendar
+                    </a>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+
+        <div style="text-align: center; margin-top: 30px;">
+            <a href="/admin/" class="btn btn-primary">← Back to Admin</a>
+        </div>
+    </div>
+</body>
+</html>

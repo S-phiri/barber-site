@@ -38,5 +38,6 @@ urlpatterns = [
     path("api/gcal/start-auth/", gcal_start_auth),
     path("api/gcal/callback/", gcal_callback),
     path("api/", include("barber.api")),
+    path("api/barber/", include("barber.urls")),
 ]
 

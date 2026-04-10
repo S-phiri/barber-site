@@ -8,6 +8,7 @@ urlpatterns = [
     # existing
     path("services/", views.services_list),
     path("barbers/", views.barbers_list),
+    path("barbers/<str:slug>/", views.barber_by_slug),
     path("time-slots", views.time_slots_list),
     path("time-slots/<str:slot_id>/hold/", views.time_slot_hold),
     path("bookings/", views.booking_create),

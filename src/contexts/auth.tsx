@@ -3,14 +3,16 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from "
 import {
   login as apiLogin,
   register as apiRegister,
-  refreshToken as apiRefreshToken,
+  refreshTokenApi as apiRefreshToken,
   setAuthHelpers,
-} from "@/lib/api"; // ← change path if your api file is somewhere else
+} from "@/lib/api";
 
 type AuthContextType = {
   ready: boolean;
   access: string | null;
   refresh: string | null;
+  user: any | null;
+  isAdmin: boolean;
   login: (id: string, password: string) => Promise<void>;
   register: (username: string, email: string, password: string) => Promise<void>;
   logout: () => void;
@@ -22,6 +24,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
   const [access, setAccess] = useState<string | null>(null);
   const [refresh, setRefresh] = useState<string | null>(null);
+  const [user, setUser] = useState<any | null>(null);
 
   useEffect(() => {
     setAccess(localStorage.getItem("access"));
@@ -55,10 +58,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     );
   }, [access, refresh]);
 
+  // Fetch user when access token is available
+  useEffect(() => {
+    if (access && !user) {
+      import("@/lib/api").then(({ me }) => {
+        me().then(setUser).catch(() => setUser(null));
+      });
+    } else if (!access) {
+      setUser(null);
+    }
+  }, [access, user]);
+
   const value = useMemo<AuthContextType>(() => ({
-    ready, access, refresh,
+    ready,
+    access,
+    refresh,
+    user,
+    isAdmin: Boolean(user?.is_staff),
     async login(id: string, password: string) {
-      const tokens = await apiLogin({ username: id.trim(), password } as any);
+      const tokens = await apiLogin(id.trim(), password);
       setAccess(tokens.access);
       if ((tokens as any).refresh) setRefresh((tokens as any).refresh);
       setAuthHelpers(
@@ -80,12 +98,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       );
     },
     async register(username, email, password) {
-      const out = await apiRegister({ username: username.trim(), email: email.trim(), password });
+      const out = await apiRegister(username.trim(), email.trim(), password);
       setAccess(out.access); setRefresh(out.refresh);
       setAuthHelpers(() => out.access, () => Promise.resolve(true));
     },
-    logout() { setAccess(null); setRefresh(null); },
-  }), [ready, access, refresh]);
+    logout() { setAccess(null); setRefresh(null); setUser(null); },
+  }), [ready, access, refresh, user]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/EmptyState";
 import { useBookings } from "@/hooks/useBookings";
-import { useAuth } from "@/auth";
+import { useAuth } from "@/contexts/auth";
 import { Calendar, Clock, User, Scissors } from "lucide-react";
 import type { Booking } from "@/types/types";
 
@@ -101,7 +101,7 @@ export default function MyBookings() {
   }, [fetchBookings]);
 
   const handleBookNew = () => {
-    navigate("/services");
+    navigate("/booking");
   };
 
   const handleLogout = () => {

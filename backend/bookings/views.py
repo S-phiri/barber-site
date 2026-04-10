@@ -1,17 +1,21 @@
-from django.shortcuts import render
-from datetime import datetime, timedelta, timezone, date, time
-from bson import ObjectId
-from pymongo import ReturnDocument
+from datetime import datetime, timedelta, date, time
+from django.conf import settings
+from django.utils import timezone as dj_tz
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework import status
-from .db import db, norm
-from .utils import generate_slots
-from .hours import get_hours_for_weekday
-# Models are in the barber app, not bookings
-from django.utils import timezone
 from django.contrib.auth import authenticate, login, logout
+from zoneinfo import ZoneInfo
+
+from barber.queries import (
+    list_active_services, list_active_barbers, get_barber_by_slug,
+    available_slots, hold_slot, confirm_booking, cancel_booking,
+    get_user_bookings, is_barber_interval_blocked,
+)
+from barber.models import Service
+from .hours import get_hours_for_weekday
+from .utils import generate_slots
 
 
 @api_view(["POST"])
@@ -49,68 +53,129 @@ def csrf_token(request):
 
 @api_view(["GET"])
 def services_list(_req):
-    items = [{"id": str(x["_id"]), "name": x["name"], "duration_min": x["duration_min"], "price_cents": x["price_cents"]}
-             for x in db.services.find({"is_active": True})]
+    """Get all active services."""
+    services = list_active_services()
+    items = [{"id": str(s.id), "name": s.name, "duration_min": s.duration_minutes, "price_cents": s.price_cents}
+             for s in services]
     return Response(items)
 
 @api_view(["GET"])
 def barbers_list(_req):
-    items = [{"id": str(x["_id"]), "display_name": x["display_name"], "specialties": x.get("specialties", [])}
-             for x in db.barbers.find({"is_active": True})]
+    """Get all active barbers."""
+    barbers = list_active_barbers()
+    items = [{"id": str(b.id), "display_name": b.display_name, "specialties": b.specialties}
+             for b in barbers]
     return Response(items)
 
 @api_view(["GET"])
+def barber_by_slug(_req, slug: str):
+    """Get a specific barber by slug."""
+    barber = get_barber_by_slug(slug)
+    if not barber:
+        return Response({"error": "Barber not found"}, status=404)
+    
+    return Response({
+        "id": str(barber.id),
+        "name": barber.display_name,
+        "slug": barber.slug,
+        "specialties": barber.specialties
+    })
+
+@api_view(["GET"])
 def time_slots_list(req):
-    now = datetime.now(timezone.utc)
+    """Get available time slots."""
     barber_id = req.query_params.get("barberId")
-    date_str  = req.query_params.get("date")
-    q = {"$or": [{"status": "open"}, {"status": "held", "hold_expires_at": {"$lte": now}}]}
-    if barber_id: q["barber_id"] = barber_id
-    if date_str:
-        start = datetime.fromisoformat(date_str).replace(tzinfo=timezone.utc)
-        end = start + timedelta(days=1)
-        q["start_ts"] = {"$gte": start, "$lt": end}
-    docs = list(db.time_slots.find(q).sort("start_ts", 1))
-    return Response([norm(d) for d in docs])
+    service_id = req.query_params.get("serviceId")
+    date_str = req.query_params.get("date")
+    
+    slots = available_slots(
+        barber_id=barber_id,
+        service_id=service_id,
+        date=date_str
+    )
+    
+    # Convert to the expected format
+    items = []
+    for slot in slots:
+        items.append({
+            "id": str(slot.id),
+            "barber_id": str(slot.barber.id),
+            "start_ts": slot.start_at.isoformat(),
+            "end_ts": slot.end_at.isoformat(),
+            "status": "open" if slot.is_available else "booked"
+        })
+    
+    return Response(items)
 
 @api_view(["POST"])
 def time_slot_hold(_req, slot_id: str):
-    now = datetime.now(timezone.utc)
-    res = db.time_slots.find_one_and_update(
-        {"_id": ObjectId(slot_id),
-         "$or": [{"status": "open"}, {"status": "held", "hold_expires_at": {"$lte": now}}]},
-        {"$set": {"status": "held", "hold_expires_at": now + timedelta(minutes=10)}},
-        return_document=ReturnDocument.AFTER,
-    )
-    if not res:
+    """Hold a time slot."""
+    user_id = _req.user.id if _req.user.is_authenticated else None
+    hold = hold_slot(slot_id, user_id=user_id, ttl_minutes=10)
+    
+    if not hold:
         return Response({"detail": "Slot not available"}, status=status.HTTP_409_CONFLICT)
-    return Response({"id": str(res["_id"]), "hold_expires_at": norm(res)["hold_expires_at"]})
+    
+    return Response({
+        "id": str(hold.id),
+        "slot_id": str(hold.slot.id),
+        "expires_at": hold.expires_at.isoformat(),
+        "status": "held"
+    })
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def booking_create(req):
+    """Create a new booking."""
     data = req.data or {}
-    barber_id  = data.get("barber_id")
+    barber_id = data.get("barber_id")
     service_id = data.get("service_id")
-    slot_id    = data.get("slot_id")
+    slot_id = data.get("slot_id")
+    customer_name = data.get("customer_name", "")
+    customer_phone = data.get("customer_phone", "")
+    notes = data.get("notes", "")
+    
     if not (barber_id and service_id and slot_id):
-        return Response({"detail":"Missing fields"}, status=400)
-    now = datetime.now(timezone.utc)
-    slot = db.time_slots.find_one({"_id": ObjectId(slot_id)})
-    if not slot or slot.get("status") != "held" or slot.get("hold_expires_at", now) < now:
-        return Response({"detail":"Hold expired or slot invalid"}, status=409)
-    user_id = str(req.user.id)
-    ins = db.bookings.insert_one({
-        "user_id": user_id, "barber_id": barber_id, "service_id": service_id,
-        "slot_id": slot_id, "status": "pending", "created_at": now
-    })
-    return Response({"id": str(ins.inserted_id), "status": "pending"}, status=201)
+        return Response({"detail": "Missing fields"}, status=400)
+    
+    user_id = req.user.id
+    booking = confirm_booking(
+        slot_id=slot_id,
+        barber_id=barber_id,
+        service_id=service_id,
+        customer_name=customer_name,
+        customer_phone=customer_phone,
+        notes=notes,
+        user_id=user_id
+    )
+    
+    if not booking:
+        return Response({"detail": "Hold expired or slot invalid"}, status=409)
+    
+    return Response({"id": str(booking.id), "status": "confirmed"}, status=201)
 
 @api_view(["GET"])
-def bookings_me(_req):
-    docs = list(db.bookings.find().sort("created_at", -1))
-    return Response([{"id": str(d["_id"]), "status": d["status"],
-                      "barber_id": d["barber_id"], "service_id": d["service_id"], "slot_id": d["slot_id"]} for d in docs])
+def bookings_me(req):
+    """Get user's bookings."""
+    if not req.user.is_authenticated:
+        return Response([])
+    
+    bookings = get_user_bookings(req.user.id)
+    items = []
+    for booking in bookings:
+        items.append({
+            "id": str(booking.id),
+            "slot_id": str(booking.slot.id),
+            "barber_id": str(booking.barber.id),
+            "service_id": str(booking.service.id),
+            "barber_name": booking.barber.display_name,
+            "service_name": booking.service.name,
+            "customer_name": booking.customer_name,
+            "status": booking.status,
+            "created_at": booking.created_at.isoformat()
+        })
+    
+    return Response(items)
 
 @api_view(["POST"])
 def checkout(_req):
@@ -122,7 +187,7 @@ def checkout(_req):
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def slots(request):
-    """Generate available time slots for a specific date, barber, and service"""
+    """Generate available time slots for a specific date, barber, and service (Django ORM)."""
     q = request.query_params
     barber_id = q.get("barber_id") or q.get("barber")
     service_id = q.get("service_id") or q.get("service")
@@ -132,51 +197,45 @@ def slots(request):
         return Response([], status=200)
 
     try:
-        # Parse date using date.fromisoformat (Python 3.7+)
         day = date.fromisoformat(date_str)
-        
-        # Get weekday-specific hours (Mon=0, Sun=6)
-        weekday = day.weekday()
-        open_time, close_time = get_hours_for_weekday(weekday)
-        
-        # Check if the business is closed (Sunday)
-        if open_time is None or close_time is None:
-            return Response([], status=200)
-        
-        # Generate 45-minute slots with 45-minute steps
-        slot_times = generate_slots(day, open_time, close_time, duration_min=45, step_min=45)
-        
-        # Convert to the expected format for the frontend
-        available_slots = []
-        for slot_time in slot_times:
-            slot_dt = datetime.combine(day, datetime.strptime(slot_time, "%H:%M").time())
-            end_dt = slot_dt + timedelta(minutes=45)
-            
-            available_slots.append({
-                "start": slot_time,
-                "start_ts": slot_dt.isoformat(),
-                "end_ts": end_dt.isoformat(),
-                "id": f"{day.isoformat()}_{slot_time.replace(':', '')}",
-                "status": "open"
-            })
-        
-        # Filter out past slots if it's today
-        now = datetime.now()
-        if day == now.date():
-            current_time = now.time()
-            available_slots = [
-                slot for slot in available_slots
-                if datetime.strptime(slot["start"], "%H:%M").time() > current_time
-            ]
-        
-        # TODO: Filter out booked slots by checking existing bookings
-        # This would require checking the bookings collection for conflicts
-        
-        return Response(available_slots, status=200)
-        
     except ValueError:
-        # Invalid date format
         return Response([], status=200)
-    except Exception as e:
-        # Any other error
+
+    try:
+        service = Service.objects.get(id=service_id, active=True)
+        duration_min = service.duration_minutes
+    except Service.DoesNotExist:
+        duration_min = 45
+
+    weekday = day.weekday()
+    open_time, close_time = get_hours_for_weekday(weekday)
+    if open_time is None or close_time is None:
         return Response([], status=200)
+
+    slot_times = generate_slots(
+        day, open_time, close_time, duration_min=duration_min, step_min=duration_min
+    )
+
+    tz = ZoneInfo(str(settings.TIME_ZONE))
+    now = dj_tz.now()
+    result = []
+
+    for slot_time in slot_times:
+        t = datetime.strptime(slot_time, "%H:%M").time()
+        slot_dt = dj_tz.make_aware(datetime.combine(day, t), timezone=tz)
+        end_dt = slot_dt + timedelta(minutes=duration_min)
+
+        if day == now.date() and slot_dt <= now:
+            continue
+        if is_barber_interval_blocked(barber_id, slot_dt, end_dt):
+            continue
+
+        result.append({
+            "start": slot_time,
+            "start_ts": slot_dt.isoformat(),
+            "end_ts": end_dt.isoformat(),
+            "id": f"{day.isoformat()}_{slot_time.replace(':', '')}",
+            "status": "open",
+        })
+
+    return Response(result, status=200)

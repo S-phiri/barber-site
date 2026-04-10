@@ -2,7 +2,7 @@ import React from "react";
 import { Button } from "./ui/button";
 import { Phone } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
-import { useAuth } from "@/auth";
+import { useAuth } from "@/contexts/auth";
 import { motion } from "framer-motion";
 
 

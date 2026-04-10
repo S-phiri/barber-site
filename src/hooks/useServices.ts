@@ -8,29 +8,29 @@ export function useServices() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    async function fetchServices() {
-      try {
-        setLoading(true);
-        setError(null);
-        const data = await getServices();
-        setServices(data);
-      } catch (err) {
-        const errorMessage =
-          err instanceof Error ? err.message : "Failed to load services";
-        setError(errorMessage);
-        toast({
-          title: "Error",
-          description: errorMessage,
-          variant: "destructive",
-        });
-      } finally {
-        setLoading(false);
-      }
+  async function fetchServices() {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await getServices();
+      setServices(data);
+    } catch (err) {
+      const errorMessage =
+        err instanceof Error ? err.message : "Failed to load services";
+      setError(errorMessage);
+      toast({
+        title: "Error",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
     }
+  }
 
-    fetchServices();
+  useEffect(() => {
+    void fetchServices();
   }, []);
 
-  return { services, loading, error, refetch: () => fetchServices() };
+  return { services, loading, error, refetch: fetchServices };
 }

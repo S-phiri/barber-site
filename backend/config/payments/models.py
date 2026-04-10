@@ -19,7 +19,12 @@ class Order(models.Model):
     ]
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    user = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="payment_orders",
+    )
     amount_cents = models.PositiveIntegerField(help_text="Amount in cents")
     currency = models.CharField(max_length=3, default="ZAR")
     description = models.CharField(max_length=255)
@@ -33,14 +38,6 @@ class Order(models.Model):
     
     def __str__(self):
         return f"Order {self.id} - {self.status} - {self.amount_cents/100:.2f} {self.currency}"
-
- # 👇 add/ensure this field exists exactly like this
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,   # or CASCADE if you prefer
-        null=True, blank=True,
-        related_name="payment_orders",   # <<< prevents clash with barber.Order
-    )
 
 class Payment(models.Model):
     """Payment record for tracking PayFast transactions."""

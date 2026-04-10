@@ -35,7 +35,7 @@ export default function Checkout() {
   // Redirect if missing required data
   useEffect(() => {
     if (!serviceId || !barberId || !slotId || !heldSlot) {
-      navigate("/services");
+      navigate("/booking");
     }
   }, [serviceId, barberId, slotId, heldSlot, navigate]);
 
@@ -93,11 +93,11 @@ export default function Checkout() {
       description: "Your time slot has expired. Please select a new slot.",
       variant: "destructive",
     });
-    navigate("/calendar");
+    navigate("/booking/slots");
   };
 
   const handleBack = () => {
-    navigate("/calendar");
+    navigate("/booking/slots");
   };
 
   return (
@@ -157,7 +157,7 @@ export default function Checkout() {
               variant="outline"
               onClick={() => {
                 resetBooking();
-                navigate("/my-bookings");
+                navigate("/bookings");
               }}
               className="w-full"
             >

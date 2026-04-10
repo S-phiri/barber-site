@@ -9,19 +9,16 @@ from django.db import transaction
 from .models import Service, Slot, Booking, Product, Order, OrderItem, LoyaltyEntry
 from . import serializers_barbers as s
 
-from .google_calendar import start_oauth_flow, finish_oauth_flow, is_free, create_event, delete_event
+from .google_calendar import GoogleCalendarService
 
 @staff_member_required
 def gcal_start_auth(request):
-    url = start_oauth_flow()
-    return HttpResponseRedirect(url)
+    # For now, redirect to admin page - barbers will use the new auth flow
+    return HttpResponseRedirect('/admin/')
 
 def gcal_callback(request):
-    code = request.GET.get("code")
-    if not code:
-        return HttpResponseBadRequest("Missing code")
-    finish_oauth_flow(code)
-    return JsonResponse({"ok": True})
+    # This is handled by the new google_auth_views
+    return HttpResponseRedirect('/admin/')
 
 class ReadOnlyOrAuthenticated(permissions.IsAuthenticatedOrReadOnly):
     pass
@@ -31,17 +28,16 @@ class ServiceViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = s.ServiceSerializer
 
 class SlotViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = Slot.objects.all().order_by("start")
+    queryset = Slot.objects.all().order_by("start_at")
     serializer_class = s.SlotSerializer
     
     def get_queryset(self):
         queryset = super().get_queryset()
         
-        # Filter by barber_id (using barber_name for now)
+        # Filter by barber_id
         barber_id = self.request.query_params.get('barber_id')
         if barber_id:
-            # For now, we only have Ramad, so filter by barber_name
-            queryset = queryset.filter(barber_name="Ramad")
+            queryset = queryset.filter(barber_id=barber_id)
         
         # Filter by date
         date = self.request.query_params.get('date')
