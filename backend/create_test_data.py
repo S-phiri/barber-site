@@ -4,7 +4,6 @@ Script to create test data for the barbershop app.
 Run this from the Django project root: python manage.py shell < create_test_data.py
 """
 import os
-import sys
 import django
 from datetime import datetime, timedelta, timezone
 
@@ -12,10 +11,8 @@ from datetime import datetime, timedelta, timezone
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
 django.setup()
 
-from barber.models import Barber, Service, Slot, Booking
-from django.contrib.auth import get_user_model
-
-User = get_user_model()
+from barber.default_services import DEFAULT_SERVICES
+from barber.models import Barber, Service, Slot
 
 def create_test_data():
     print("Creating test data...")
@@ -32,19 +29,16 @@ def create_test_data():
     )
     print(f"Barber created: {barber}")
     
-    # Create test services
-    services_data = [
-        {'name': 'Skin Fade', 'duration_minutes': 45, 'price_cents': 20000},
-        {'name': 'Beard Trim', 'duration_minutes': 30, 'price_cents': 15000},
-        {'name': 'Full Service', 'duration_minutes': 75, 'price_cents': 35000},
-    ]
-    
-    for service_data in services_data:
-        service, created = Service.objects.get_or_create(
-            name=service_data['name'],
-            defaults=service_data
+    for row in DEFAULT_SERVICES:
+        service, _ = Service.objects.update_or_create(
+            name=row["name"],
+            defaults={
+                "duration_minutes": row["duration_minutes"],
+                "price_cents": row["price_cents"],
+                "active": True,
+            },
         )
-        print(f"Service created: {service}")
+        print(f"Service: {service}")
     
     # Create test slots for the next few days
     now = datetime.now(timezone.utc)

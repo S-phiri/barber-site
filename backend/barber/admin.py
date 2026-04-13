@@ -1,5 +1,26 @@
 from django.contrib import admin
-from .models import Barber, Service, Slot, SlotHold, Booking, Product, Order, OrderItem, LoyaltyEntry, GoogleToken
+from .models import (
+    Barber,
+    Service,
+    Slot,
+    SlotHold,
+    Booking,
+    Product,
+    Order,
+    OrderItem,
+    LoyaltyEntry,
+    GoogleToken,
+    CustomerNote,
+    BlockedDate,
+    CustomerProfile,
+    UserAccountProfile,
+)
+
+
+@admin.register(UserAccountProfile)
+class UserAccountProfileAdmin(admin.ModelAdmin):
+    list_display = ("user", "birthday", "updated_at")
+    search_fields = ("user__username", "user__email")
 
 
 @admin.register(Barber)
@@ -78,3 +99,20 @@ class GoogleTokenAdmin(admin.ModelAdmin):
     list_filter = ("created_at", "updated_at")
     search_fields = ("label",)
     readonly_fields = ("id", "created_at", "updated_at")
+
+
+@admin.register(CustomerNote)
+class CustomerNoteAdmin(admin.ModelAdmin):
+    list_display = ("id", "customer", "barber", "updated_at")
+    search_fields = ("note", "customer__username", "barber__username")
+
+
+@admin.register(BlockedDate)
+class BlockedDateAdmin(admin.ModelAdmin):
+    list_display = ("id", "date", "reason", "created_by", "created_at")
+
+
+@admin.register(CustomerProfile)
+class CustomerProfileAdmin(admin.ModelAdmin):
+    list_display = ("id", "phone", "user", "birthday")
+    search_fields = ("phone",)

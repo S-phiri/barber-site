@@ -3,13 +3,13 @@ from django.http import JsonResponse, HttpResponseBadRequest, HttpResponseRedire
 from django.utils.decorators import method_decorator
 from rest_framework import viewsets, permissions
 from rest_framework.response import Response
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import ValidationError, PermissionDenied
 from rest_framework.decorators import action
-from django.db import transaction
+from django.utils import timezone
+from zoneinfo import ZoneInfo
+from datetime import datetime
 from .models import Service, Slot, Booking, Product, Order, OrderItem, LoyaltyEntry
 from . import serializers_barbers as s
-
-from .google_calendar import GoogleCalendarService
 
 @staff_member_required
 def gcal_start_auth(request):
@@ -42,11 +42,10 @@ class SlotViewSet(viewsets.ReadOnlyModelViewSet):
         # Filter by date
         date = self.request.query_params.get('date')
         if date:
-            from django.utils import timezone
             from datetime import datetime
             try:
                 date_obj = datetime.strptime(date, '%Y-%m-%d').date()
-                queryset = queryset.filter(start__date=date_obj)
+                queryset = queryset.filter(start_at__date=date_obj)
             except ValueError:
                 pass  # Invalid date format, ignore filter
         
@@ -55,18 +54,68 @@ class SlotViewSet(viewsets.ReadOnlyModelViewSet):
         
         return queryset
 
+TZ_JHB = ZoneInfo("Africa/Johannesburg")
+
+
 class BookingViewSet(viewsets.ModelViewSet):
-    queryset = Booking.objects.select_related("service", "slot").all().order_by("-created_at")
+    queryset = Booking.objects.select_related("service", "slot", "barber").all().order_by("-created_at")
     serializer_class = s.BookingSerializer
     permission_classes = [permissions.IsAuthenticated]
-    
+    http_method_names = ["get", "post", "head", "options", "patch"]
+
     def perform_create(self, serializer):
-        # Automatically set the user to the current authenticated user
-        serializer.save(user=self.request.user)
-    
+        serializer.save(customer_user=self.request.user)
+
     def get_queryset(self):
-        # Users can only see their own bookings
-        return super().get_queryset().filter(user=self.request.user)
+        qs = super().get_queryset()
+        if self.request.user.is_staff:
+            return qs
+        return qs.filter(customer_user=self.request.user)
+
+    def partial_update(self, request, *args, **kwargs):
+        if not request.user.is_staff:
+            raise PermissionDenied("Use the booking actions to update your appointment.")
+        return super().partial_update(request, *args, **kwargs)
+
+    @action(detail=True, methods=["patch"], url_path="request-cancellation")
+    def request_cancellation(self, request, pk=None):
+        booking = self.get_object()
+        if booking.customer_user_id != request.user.id:
+            raise PermissionDenied()
+        if booking.status not in ("confirmed", "rescheduled"):
+            raise ValidationError(
+                {"detail": "Only confirmed appointments can request cancellation."}
+            )
+        booking.status = "cancellation_requested"
+        booking.save(update_fields=["status"])
+        return Response(s.BookingSerializer(booking).data)
+
+    @action(detail=True, methods=["patch"], url_path="request-reschedule")
+    def request_reschedule(self, request, pk=None):
+        booking = self.get_object()
+        if booking.customer_user_id != request.user.id:
+            raise PermissionDenied()
+        if booking.status not in ("confirmed", "rescheduled"):
+            raise ValidationError(
+                {"detail": "Only confirmed appointments can request a reschedule."}
+            )
+        new_start = (request.data or {}).get("new_start")
+        if not new_start:
+            raise ValidationError({"new_start": "Required ISO datetime string."})
+        try:
+            dt = datetime.fromisoformat(str(new_start).replace("Z", "+00:00"))
+        except ValueError as e:
+            raise ValidationError({"new_start": str(e)}) from e
+        if timezone.is_naive(dt):
+            dt = timezone.make_aware(dt, TZ_JHB)
+        new_time = (request.data or {}).get("new_time") or ""
+        booking.new_requested_date = dt
+        booking.new_requested_time = str(new_time)[:32]
+        booking.status = "reschedule_requested"
+        booking.save(
+            update_fields=["new_requested_date", "new_requested_time", "status"]
+        )
+        return Response(s.BookingSerializer(booking).data)
 
 class ProductViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Product.objects.all().order_by("name")

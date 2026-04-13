@@ -1,5 +1,6 @@
 from django.core.management.base import BaseCommand
 from datetime import datetime, timedelta, timezone
+from barber.default_services import DEFAULT_SERVICES
 from barber.models import Barber, Service, Slot
 
 
@@ -19,17 +20,15 @@ class Command(BaseCommand):
         )
         self.stdout.write(f"Barber: {barber}")
 
-        # Create test services
-        services_data = [
-            {'name': 'Skin Fade', 'duration_minutes': 45, 'price_cents': 20000},
-            {'name': 'Beard Trim', 'duration_minutes': 30, 'price_cents': 15000},
-            {'name': 'Full Service', 'duration_minutes': 75, 'price_cents': 35000},
-        ]
-
-        for service_data in services_data:
-            service, created = Service.objects.get_or_create(
-                name=service_data['name'],
-                defaults=service_data
+        # Ensure default services (same as migration 0002_seed_default_services)
+        for row in DEFAULT_SERVICES:
+            service, _ = Service.objects.update_or_create(
+                name=row["name"],
+                defaults={
+                    "duration_minutes": row["duration_minutes"],
+                    "price_cents": row["price_cents"],
+                    "active": True,
+                },
             )
             self.stdout.write(f"Service: {service}")
 

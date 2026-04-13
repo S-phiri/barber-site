@@ -8,6 +8,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.contrib.auth import get_user_model
 from .models import Barber, Service, Booking, Slot
+from .queries import create_pending_booking_request
 from .google_calendar import GoogleCalendarService
 from datetime import datetime, timedelta
 import logging
@@ -43,57 +44,28 @@ def create_booking(request):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Parse start time
+        from django.utils import timezone as django_timezone
         start_time = datetime.fromisoformat(data['start_time'].replace('Z', '+00:00'))
-        end_time = start_time + timedelta(minutes=service.duration_minutes)
-        
-        # Create time slot
-        slot = Slot.objects.create(
-            barber=barber,
+        if django_timezone.is_naive(start_time):
+            start_time = django_timezone.make_aware(
+                start_time, django_timezone.get_current_timezone()
+            )
+        booking = create_pending_booking_request(
+            barber_id=data['barber_id'],
+            service_id=data['service_id'],
             start_at=start_time,
-            end_at=end_time,
-            is_available=False  # This slot is now booked
-        )
-        
-        # Create booking
-        booking = Booking.objects.create(
-            slot=slot,
-            barber=barber,
-            service=service,
             customer_name=data['customer_name'],
             customer_phone=data['customer_phone'],
             customer_email=data.get('customer_email', ''),
             notes=data.get('notes', ''),
-            status='confirmed'
+            user=request.user,
         )
-        
-        # Sync to Google Calendar
-        calendar_service = GoogleCalendarService()
-        booking_data = {
-            'start_time': start_time.isoformat(),
-            'duration_minutes': service.duration_minutes,
-            'service_name': service.name,
-            'customer_name': data['customer_name'],
-            'customer_phone': data['customer_phone'],
-            'customer_email': data.get('customer_email', ''),
-            'notes': data.get('notes', ''),
-            'barber_name': barber.display_name
-        }
-        
-        # Create calendar event
-        event_id = calendar_service.create_calendar_event(str(barber.id), booking_data)
-        if event_id:
-            booking.gcal_event_id = event_id
-            booking.save()
-            logger.info(f"Created Google Calendar event {event_id} for booking {booking.id}")
-        else:
-            logger.warning(f"Failed to create Google Calendar event for booking {booking.id}")
         
         return Response({
             "success": True,
             "booking_id": str(booking.id),
-            "message": "Booking created successfully and synced to calendar",
-            "calendar_event_id": event_id
+            "status": booking.status,
+            "message": "Booking request created — awaiting barber approval",
         })
         
     except Exception as e:

@@ -20,7 +20,7 @@ class BookingSerializer(serializers.ModelSerializer):
     class Meta:
         model = Booking
         fields = "__all__"
-        read_only_fields = ["user", "status", "created_at", "gcal_event_id"]
+        read_only_fields = ["status", "created_at", "gcal_event_id", "customer_user"]
     
     def create(self, validated_data):
         # Handle the case where we receive barber_id, service_id, and start

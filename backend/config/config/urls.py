@@ -17,6 +17,7 @@ Including another URLconf
 from django.contrib import admin
 from django.http import JsonResponse
 from django.urls import path, include
+from rest_framework_simplejwt.views import TokenRefreshView
 from bookings.auth_views import login, register, me  # Use JWT auth views
 from bookings.views import logout_view, csrf_token
 from barber.views import gcal_start_auth, gcal_callback
@@ -33,6 +34,7 @@ urlpatterns = [
     path("api/auth/login/", login),      # Use JWT login
     path("api/auth/register/", register), # Add JWT register
     path("api/auth/logout/", logout_view),
+    path("api/auth/token/refresh/", TokenRefreshView.as_view(), name="jwt-token-refresh"),
     path("api/auth/me/", me),            # Use JWT me
     path("api/", include("bookings.urls")),
     path("api/gcal/start-auth/", gcal_start_auth),

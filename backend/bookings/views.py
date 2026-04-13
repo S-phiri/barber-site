@@ -6,14 +6,16 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework import status
 from django.contrib.auth import authenticate, login, logout
+from django.db import IntegrityError
 from zoneinfo import ZoneInfo
 
 from barber.queries import (
     list_active_services, list_active_barbers, get_barber_by_slug,
     available_slots, hold_slot, confirm_booking, cancel_booking,
     get_user_bookings, is_barber_interval_blocked,
+    create_pending_booking_request,
 )
-from barber.models import Service
+from barber.models import BlockedDate, Service
 from .hours import get_hours_for_weekday
 from .utils import generate_slots
 
@@ -126,18 +128,55 @@ def time_slot_hold(_req, slot_id: str):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def booking_create(req):
-    """Create a new booking."""
+    """Create a booking from a held slot, or a pending request with start_time."""
     data = req.data or {}
     barber_id = data.get("barber_id")
     service_id = data.get("service_id")
     slot_id = data.get("slot_id")
     customer_name = data.get("customer_name", "")
     customer_phone = data.get("customer_phone", "")
+    customer_email = data.get("customer_email", "")
     notes = data.get("notes", "")
-    
+    start_raw = data.get("start_time")
+
+    if start_raw and barber_id and service_id and not slot_id:
+        try:
+            start_at = datetime.fromisoformat(str(start_raw).replace("Z", "+00:00"))
+            if dj_tz.is_naive(start_at):
+                start_at = dj_tz.make_aware(start_at, dj_tz.get_current_timezone())
+        except (ValueError, TypeError):
+            return Response({"detail": "Invalid start_time"}, status=400)
+        try:
+            booking = create_pending_booking_request(
+                barber_id=barber_id,
+                service_id=service_id,
+                start_at=start_at,
+                customer_name=customer_name,
+                customer_phone=customer_phone,
+                customer_email=customer_email,
+                notes=notes,
+                user=req.user,
+            )
+        except IntegrityError:
+            return Response(
+                {"detail": "That time slot is already taken. Please pick another time."},
+                status=409,
+            )
+        except Exception as exc:
+            return Response({"detail": str(exc)}, status=400)
+        return Response(
+            {
+                "id": str(booking.id),
+                "booking_id": str(booking.id),
+                "status": booking.status,
+                "success": True,
+            },
+            status=201,
+        )
+
     if not (barber_id and service_id and slot_id):
         return Response({"detail": "Missing fields"}, status=400)
-    
+
     user_id = req.user.id
     booking = confirm_booking(
         slot_id=slot_id,
@@ -148,18 +187,19 @@ def booking_create(req):
         notes=notes,
         user_id=user_id
     )
-    
+
     if not booking:
         return Response({"detail": "Hold expired or slot invalid"}, status=409)
-    
-    return Response({"id": str(booking.id), "status": "confirmed"}, status=201)
+
+    return Response(
+        {"id": str(booking.id), "booking_id": str(booking.id), "status": booking.status},
+        status=201,
+    )
 
 @api_view(["GET"])
+@permission_classes([IsAuthenticated])
 def bookings_me(req):
     """Get user's bookings."""
-    if not req.user.is_authenticated:
-        return Response([])
-    
     bookings = get_user_bookings(req.user.id)
     items = []
     for booking in bookings:
@@ -168,11 +208,26 @@ def bookings_me(req):
             "slot_id": str(booking.slot.id),
             "barber_id": str(booking.barber.id),
             "service_id": str(booking.service.id),
+            "barber": {
+                "id": str(booking.barber.id),
+                "display_name": booking.barber.display_name,
+            },
+            "service": {
+                "id": str(booking.service.id),
+                "name": booking.service.name,
+                "price_cents": booking.service.price_cents,
+            },
             "barber_name": booking.barber.display_name,
             "service_name": booking.service.name,
             "customer_name": booking.customer_name,
+            "notes": booking.notes,
             "status": booking.status,
-            "created_at": booking.created_at.isoformat()
+            "start_ts": booking.slot.start_at.isoformat(),
+            "end_ts": booking.slot.end_at.isoformat(),
+            "new_requested_date": booking.new_requested_date.isoformat() if booking.new_requested_date else None,
+            "new_requested_time": booking.new_requested_time or "",
+            "rejection_reason": booking.rejection_reason or "",
+            "created_at": booking.created_at.isoformat(),
         })
     
     return Response(items)
@@ -199,6 +254,9 @@ def slots(request):
     try:
         day = date.fromisoformat(date_str)
     except ValueError:
+        return Response([], status=200)
+
+    if BlockedDate.objects.filter(date=day).exists():
         return Response([], status=200)
 
     try:

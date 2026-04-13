@@ -25,13 +25,13 @@ const GallerySection = ({
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
   return (
-    <section className="py-20 px-4 bg-silver-50" id="gallery">
+    <section className="py-20 px-4 bg-[var(--bg-primary)]" id="gallery">
       <div className="container mx-auto">
-        <h2 className="text-4xl md:text-5xl font-bold mb-6 text-center text-black tracking-tight">
-          <span className="text-silver-600">Our</span> Signature Cuts
+        <h2 className="text-4xl md:text-5xl font-bold mb-6 text-center text-[var(--text-primary)] tracking-tight">
+          <span className="text-[var(--text-secondary)]">Our</span> Signature Cuts
         </h2>
-        <div className="h-1 w-32 bg-gradient-to-r from-silver-400 to-black mx-auto mb-8"></div>
-        <p className="text-silver-600 text-center max-w-3xl mx-auto mb-16 text-lg leading-relaxed">
+        <div className="h-1 w-32 bg-gradient-to-r from-[var(--text-secondary)] to-[var(--text-primary)] mx-auto mb-8"></div>
+        <p className="text-[var(--text-secondary)] text-center max-w-3xl mx-auto mb-16 text-lg leading-relaxed">
           Browse through our gallery of premium haircuts and styles. We take
           pride in delivering precision cuts that make you look and feel your
           best.
@@ -41,7 +41,7 @@ const GallerySection = ({
           {images.map((image, index) => (
             <motion.div
               key={index}
-              className="relative overflow-hidden rounded-lg shadow-lg bg-white cursor-pointer border border-silver-200 hover:border-silver-400"
+              className="relative overflow-hidden rounded-sm shadow-lg bg-[var(--bg-card)] cursor-pointer border border-[var(--border-color)] hover:border-[var(--text-secondary)]"
               whileHover={{ scale: 1.05, y: -5 }}
               transition={{ duration: 0.4, ease: "easeOut" }}
               onClick={() => setSelectedImage(image.src)}
@@ -67,7 +67,7 @@ const GallerySection = ({
           open={!!selectedImage}
           onOpenChange={() => setSelectedImage(null)}
         >
-          <DialogContent className="max-w-4xl bg-white border border-silver-300 p-1">
+          <DialogContent className="max-w-4xl bg-[var(--bg-card)] border border-[var(--border-color)] p-1">
             <div className="relative w-full">
               <img
                 src={selectedImage || ""}
@@ -79,10 +79,10 @@ const GallerySection = ({
         </Dialog>
 
         <div className="mt-16 text-center">
-          <p className="text-black font-semibold mb-6 text-lg">
+          <p className="text-[var(--text-primary)] font-semibold mb-6 text-lg">
             Like what you see?
           </p>
-          <Link to="/booking" className="bg-black text-white px-8 py-4 rounded-sm hover:bg-charcoal-800 transition-colors font-semibold text-lg uppercase tracking-wide shadow-lg hover:shadow-xl">Book Now</Link>
+          <Link to="/booking" className="inline-block bg-black text-white px-8 py-4 rounded-sm hover:bg-neutral-800 transition-colors font-semibold text-lg uppercase tracking-wide shadow-lg hover:shadow-xl">Book Now</Link>
         </div>
       </div>
     </section>

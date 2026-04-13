@@ -79,18 +79,37 @@ class Booking(models.Model):
         ('pending', 'Pending'),
         ('confirmed', 'Confirmed'),
         ('cancelled', 'Cancelled'),
+        ('rejected', 'Rejected'),
+        ('completed', 'Completed'),
+        ('no_show', 'No Show'),
+        ('cancellation_requested', 'Cancellation Requested'),
+        ('reschedule_requested', 'Reschedule Requested'),
+        ('rescheduled', 'Rescheduled'),
     ]
-    
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     slot = models.OneToOneField(Slot, on_delete=models.PROTECT)
     barber = models.ForeignKey(Barber, on_delete=models.PROTECT)
     service = models.ForeignKey(Service, on_delete=models.PROTECT)
+    customer_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='bookings_as_customer',
+    )
     customer_name = models.CharField(max_length=100)
     customer_phone = models.CharField(max_length=20)
     customer_email = models.EmailField(blank=True)
     notes = models.TextField(blank=True)
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    status = models.CharField(max_length=32, choices=STATUS_CHOICES, default='pending')
     created_at = models.DateTimeField(auto_now_add=True)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    rejection_reason = models.CharField(max_length=500, blank=True)
+    # Customer-requested reschedule (awaiting staff approval)
+    new_requested_date = models.DateTimeField(null=True, blank=True)
+    new_requested_time = models.CharField(max_length=32, blank=True)
 
     # Google Calendar event mapping
     gcal_event_id = models.CharField(max_length=256, blank=True, null=True)
@@ -100,6 +119,89 @@ class Booking(models.Model):
 
     def __str__(self):
         return f"Booking {self.id} - {self.customer_name} ({self.status})"
+
+
+class CustomerNote(models.Model):
+    """Staff notes about a registered customer (linked to User)."""
+    customer = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='barber_notes_received',
+    )
+    barber = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='notes_written',
+    )
+    note = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['customer', 'barber'], name='unique_customer_note_per_barber'),
+        ]
+
+    def __str__(self):
+        return f"Note for {self.customer_id}"
+
+
+class BlockedDate(models.Model):
+    """Shop-wide day off — no bookings on this calendar date."""
+    date = models.DateField(unique=True)
+    reason = models.CharField(max_length=200, blank=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+    gcal_event_id = models.CharField(
+        max_length=256,
+        blank=True,
+        default="",
+        help_text="Google Calendar event id for all-day block (primary calendar)",
+    )
+
+    class Meta:
+        ordering = ['date']
+
+    def __str__(self):
+        return f"Blocked {self.date}"
+
+
+class CustomerProfile(models.Model):
+    """Optional profile keyed by phone for birthday / linking to User."""
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='barber_customer_profile',
+    )
+    phone = models.CharField(max_length=20, unique=True)
+    birthday = models.DateField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['phone']
+
+    def __str__(self):
+        return self.phone
+
+
+class UserAccountProfile(models.Model):
+    """Registered customer web account — birthday for dashboard promos."""
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="bbit_account",
+    )
+    birthday = models.DateField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "User account profile"
+
+    def __str__(self):
+        return f"Profile {self.user_id}"
+
 
 class Product(models.Model):
     name = models.CharField(max_length=120)

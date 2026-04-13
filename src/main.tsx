@@ -2,7 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import "./index.css";
-
+import { initBbitTheme } from "@/lib/bbitTheme";
 import App from "./App";
 import Home from "@/components/home";
 import Services from "@/pages/Services";
@@ -17,6 +17,8 @@ import Admin from "@/pages/Admin";
 import Login from "@/pages/Login";
 import Signup from "@/pages/Signup";
 import Dashboard from "@/pages/Dashboard";
+import BarberDashboard from "@/pages/BarberDashboard";
+import BarberRoute from "@/components/BarberRoute";
 import Products from "@/pages/Products";
 import BookingLayout from "@/pages/BookingLayout";
 import GoogleCalendarBooking from "@/pages/GoogleCalendarBooking";
@@ -25,6 +27,8 @@ import PaymentCancel from "@/pages/PaymentCancel";
 import { AuthProvider } from "@/contexts/auth";
 import PrivateRoute from "@/components/PrivateRoute";
 import { BookingProvider } from "@/contexts/BookingContext";
+
+initBbitTheme();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
@@ -39,6 +43,16 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             <Route path="booking/google-calendar" element={<PrivateRoute><GoogleCalendarBooking /></PrivateRoute>} />
             <Route path="barbers/:slug/calendar" element={<PrivateRoute><BookingProvider><Book /></BookingProvider></PrivateRoute>} />
             <Route path="dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
+            <Route
+              path="barber-dashboard"
+              element={
+                <PrivateRoute>
+                  <BarberRoute>
+                    <BarberDashboard />
+                  </BarberRoute>
+                </PrivateRoute>
+              }
+            />
             <Route element={<PrivateRoute><BookingLayout /></PrivateRoute>}>
               <Route path="booking" element={<Services />} />
               <Route path="booking/barbers" element={<BarberPicker />} />

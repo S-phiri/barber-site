@@ -4,7 +4,7 @@ Query helpers for barber app using Django ORM.
 from datetime import datetime, timedelta, timezone
 from django.utils import timezone as django_timezone
 from django.db.models import Q
-from .models import Barber, Service, Slot, SlotHold, Booking
+from .models import Barber, BlockedDate, Service, Slot, SlotHold, Booking
 
 
 def list_active_services():
@@ -50,6 +50,8 @@ def available_slots(barber_id=None, service_id=None, date=None):
     if date:
         if isinstance(date, str):
             date = datetime.strptime(date, '%Y-%m-%d').date()
+        if BlockedDate.objects.filter(date=date).exists():
+            return Slot.objects.none()
         start_of_day = datetime.combine(date, datetime.min.time()).replace(tzinfo=timezone.utc)
         end_of_day = datetime.combine(date, datetime.max.time()).replace(tzinfo=timezone.utc)
         queryset = queryset.filter(start_at__gte=start_of_day, start_at__lt=end_of_day)
@@ -143,7 +145,7 @@ def confirm_booking(slot_id, barber_id, service_id, customer_name, customer_phon
     if hasattr(slot, 'booking'):
         return None
     
-    # Create booking
+    # Create booking (awaiting barber approval — no calendar sync yet)
     booking = Booking.objects.create(
         slot=slot,
         barber=barber,
@@ -151,7 +153,8 @@ def confirm_booking(slot_id, barber_id, service_id, customer_name, customer_phon
         customer_name=customer_name,
         customer_phone=customer_phone,
         notes=notes,
-        status='confirmed'
+        status='pending',
+        customer_user_id=user_id,
     )
     
     # Mark slot as unavailable
@@ -163,33 +166,6 @@ def confirm_booking(slot_id, barber_id, service_id, customer_name, customer_phon
         slot=slot,
         status='active'
     ).update(status='converted')
-    
-    # Create Google Calendar event if barber has connected their calendar
-    try:
-        from .google_calendar import GoogleCalendarService
-        google_service = GoogleCalendarService()
-        
-        if google_service.is_barber_connected(str(barber.id)):
-            booking_data = {
-                'start_time': slot.start_at.isoformat(),
-                'duration_minutes': service.duration_minutes,
-                'service_name': service.name,
-                'customer_name': customer_name,
-                'customer_phone': customer_phone,
-                'notes': notes,
-                'customer_email': None  # Add if you have customer email
-            }
-            
-            event_id = google_service.create_calendar_event(str(barber.id), booking_data)
-            if event_id:
-                booking.gcal_event_id = event_id
-                booking.save()
-                
-    except Exception as e:
-        # Log error but don't fail the booking
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.error(f"Failed to create Google Calendar event for booking {booking.id}: {e}")
     
     return booking
 
@@ -221,9 +197,50 @@ def cancel_booking(booking_id):
 
 def get_user_bookings(user_id):
     """Get all bookings for a specific user."""
-    return Booking.objects.filter(
-        slot__slothold__user_id=user_id
-    ).select_related('slot', 'barber', 'service').order_by('-created_at')
+    return (
+        Booking.objects.filter(
+            Q(customer_user_id=user_id) | Q(slot__slothold__user_id=user_id)
+        )
+        .distinct()
+        .select_related('slot', 'barber', 'service')
+        .order_by('-created_at')
+    )
+
+
+def create_pending_booking_request(
+    *,
+    barber_id,
+    service_id,
+    start_at,
+    customer_name,
+    customer_phone,
+    customer_email,
+    notes,
+    user,
+):
+    from datetime import timedelta
+    barber = Barber.objects.get(id=barber_id, is_active=True)
+    service = Service.objects.get(id=service_id, active=True)
+    end_at = start_at + timedelta(minutes=service.duration_minutes)
+    slot = Slot.objects.create(
+        barber=barber,
+        start_at=start_at,
+        end_at=end_at,
+        is_available=False,
+    )
+    booking = Booking.objects.create(
+        slot=slot,
+        barber=barber,
+        service=service,
+        customer_user=user if getattr(user, 'is_authenticated', False) else None,
+        customer_name=customer_name or '',
+        customer_phone=customer_phone or '',
+        customer_email=customer_email or '',
+        notes=notes or '',
+        status='pending',
+    )
+    return booking
+
 
 
 def is_barber_interval_blocked(barber_id, start_at, end_at):

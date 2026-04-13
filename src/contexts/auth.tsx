@@ -5,6 +5,8 @@ import {
   register as apiRegister,
   refreshTokenApi as apiRefreshToken,
   setAuthHelpers,
+  me as apiMe,
+  logout as apiLogout,
 } from "@/lib/api";
 
 type AuthContextType = {
@@ -14,7 +16,8 @@ type AuthContextType = {
   user: any | null;
   isAdmin: boolean;
   login: (id: string, password: string) => Promise<void>;
-  register: (username: string, email: string, password: string) => Promise<void>;
+  register: (username: string, email: string, password: string, birthday?: string | null) => Promise<void>;
+  refreshUser: () => Promise<void>;
   logout: () => void;
 };
 
@@ -58,16 +61,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     );
   }, [access, refresh]);
 
-  // Fetch user when access token is available
+  // Load /me whenever access changes (login, restore from storage, logout)
   useEffect(() => {
-    if (access && !user) {
-      import("@/lib/api").then(({ me }) => {
-        me().then(setUser).catch(() => setUser(null));
-      });
-    } else if (!access) {
+    if (!access) {
       setUser(null);
+      return;
     }
-  }, [access, user]);
+    let cancelled = false;
+    apiMe()
+      .then((u) => {
+        if (!cancelled) setUser(u);
+      })
+      .catch(() => {
+        if (!cancelled) setUser(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [access]);
 
   const value = useMemo<AuthContextType>(() => ({
     ready,
@@ -76,6 +87,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     user,
     isAdmin: Boolean(user?.is_staff),
     async login(id: string, password: string) {
+      setUser(null);
       const tokens = await apiLogin(id.trim(), password);
       setAccess(tokens.access);
       if ((tokens as any).refresh) setRefresh((tokens as any).refresh);
@@ -97,12 +109,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       );
     },
-    async register(username, email, password) {
-      const out = await apiRegister(username.trim(), email.trim(), password);
-      setAccess(out.access); setRefresh(out.refresh);
+    async register(username, email, password, birthday) {
+      const out = await apiRegister(username.trim(), email.trim(), password, birthday);
+      setAccess(out.access);
+      setRefresh(out.refresh);
       setAuthHelpers(() => out.access, () => Promise.resolve(true));
     },
-    logout() { setAccess(null); setRefresh(null); setUser(null); },
+    async refreshUser() {
+      if (!access) return;
+      try {
+        const u = await apiMe();
+        setUser(u);
+      } catch {
+        setUser(null);
+      }
+    },
+    logout() {
+      try {
+        localStorage.removeItem("access");
+        localStorage.removeItem("refresh");
+      } catch {
+        /* ignore */
+      }
+      setAccess(null);
+      setRefresh(null);
+      setUser(null);
+      setAuthHelpers(
+        () => null,
+        async () => false,
+      );
+      void apiLogout().catch(() => {});
+    },
   }), [ready, access, refresh, user]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
