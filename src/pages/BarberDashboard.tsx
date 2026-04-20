@@ -54,20 +54,19 @@ import {
   siteOrigin,
   waMeLink,
 } from "@/lib/bookingMessages";
+import { BBIT_THEME_CHANGE_EVENT, getBbitTheme, type BbitTheme } from "@/lib/bbitTheme";
 
-const PAGE = "min-h-screen bg-[#0a0a0a] text-[#e0e0e0]";
+const PAGE = "min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)]";
 const CARD =
-  "rounded-sm border border-white/[0.08] bg-[#141414] shadow-[0_4px_24px_rgba(0,0,0,0.4)] transition-colors hover:border-white/[0.15]";
-const SECTION_TITLE = "text-xl font-bold uppercase tracking-widest text-white";
-const LABEL = "text-xs uppercase tracking-widest text-[#888888]";
-const BODY = "text-sm text-gray-300";
-const SECTION_BLOCK =
-  "py-12 border-b border-white/[0.04]";
+  "rounded-sm border border-[var(--border-color)] bg-[var(--bg-card)] shadow-[0_4px_24px_rgba(0,0,0,0.12)] transition-colors hover:border-[color-mix(in_srgb,var(--text-primary)_22%,transparent)]";
+const SECTION_TITLE = "text-xl font-bold uppercase tracking-widest text-[var(--text-primary)]";
+const LABEL = "text-xs uppercase tracking-widest text-[var(--text-secondary)]";
+const BODY = "text-sm text-[var(--text-secondary)]";
+const SECTION_BLOCK = "py-12 border-b border-[var(--border-color)]";
 
-const btnPrimary =
-  "inline-flex items-center justify-center bg-white text-black hover:bg-gray-100 font-semibold uppercase tracking-wide text-xs px-4 py-2 rounded-sm transition-colors";
+const btnPrimary = "bbit-btn-primary-inline";
 const btnSecondary =
-  "inline-flex items-center justify-center border border-white/20 text-white hover:border-white/60 font-semibold uppercase tracking-wide text-xs px-4 py-2 rounded-sm transition-colors";
+  "inline-flex items-center justify-center border border-[color-mix(in_srgb,var(--text-primary)_22%,transparent)] text-[var(--text-primary)] hover:border-[color-mix(in_srgb,var(--text-primary)_45%,transparent)] font-semibold uppercase tracking-wide text-xs px-4 py-2 rounded-sm transition-colors";
 const btnDanger =
   "inline-flex items-center justify-center border border-red-500/40 text-red-400 hover:border-red-500 font-semibold uppercase tracking-wide text-xs px-4 py-2 rounded-sm transition-colors";
 const btnSuccess =
@@ -75,7 +74,7 @@ const btnSuccess =
 
 /** Block Today + View Booking Page: secondary look, invert to white/black on hover */
 const btnHeaderSecondary =
-  "inline-flex items-center justify-center border border-white/20 text-white hover:bg-white hover:text-black hover:border-white font-semibold uppercase tracking-wide text-xs px-4 py-2 rounded-sm transition-colors duration-200";
+  "inline-flex items-center justify-center border border-[color-mix(in_srgb,var(--text-primary)_22%,transparent)] text-[var(--text-primary)] hover:bg-[var(--text-primary)] hover:text-[var(--bg-primary)] hover:border-[var(--text-primary)] font-semibold uppercase tracking-wide text-xs px-4 py-2 rounded-sm transition-colors duration-200";
 
 type BookingRow = {
   id: string;
@@ -110,7 +109,8 @@ function statusBadgeClass(status: string): string {
     return "bg-[#10b981]/15 text-[#10b981] border border-[#10b981]/40";
   if (s === "rejected" || s === "no_show")
     return "bg-[#ef4444]/10 text-[#ef4444] border border-[#ef4444]/35";
-  if (s === "cancelled") return "bg-white/5 text-[#888888] border border-white/10";
+  if (s === "cancelled")
+    return "bg-[color-mix(in_srgb,var(--text-primary)_6%,transparent)] text-[var(--text-secondary)] border border-[var(--border-color)]";
   if (s === "completed")
     return "bg-sky-500/10 text-sky-300 border border-sky-500/30";
   if (s === "cancellation_requested")
@@ -119,7 +119,7 @@ function statusBadgeClass(status: string): string {
     return "bg-transparent text-blue-300 border-2 border-blue-400/60";
   if (s === "rescheduled")
     return "bg-[#10b981]/15 text-emerald-300 border border-emerald-500/40";
-  return "bg-white/5 text-[#e0e0e0] border border-white/10";
+  return "bg-[color-mix(in_srgb,var(--text-primary)_6%,transparent)] text-[var(--text-primary)] border border-[var(--border-color)]";
 }
 
 function statusDisplayLabel(status: string): string {
@@ -162,6 +162,7 @@ function todayIsoJohannesburg(): string {
 
 export default function BarberDashboard() {
   const { toast } = useToast();
+  const [chartTheme, setChartTheme] = useState<BbitTheme>(() => getBbitTheme());
   const [today, setToday] = useState<BookingRow[]>([]);
   const [todayCount, setTodayCount] = useState(0);
   const [pending, setPending] = useState<BookingRow[]>([]);
@@ -192,6 +193,12 @@ export default function BarberDashboard() {
   useEffect(() => {
     const t = setInterval(() => setHeaderNow(new Date()), 60_000);
     return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    const sync = () => setChartTheme(getBbitTheme());
+    window.addEventListener(BBIT_THEME_CHANGE_EVENT, sync);
+    return () => window.removeEventListener(BBIT_THEME_CHANGE_EVENT, sync);
   }, []);
 
   const headerDateStr = useMemo(() => {
@@ -408,6 +415,19 @@ export default function BarberDashboard() {
     }));
   }, [analytics]);
 
+  const rechartsPalette = useMemo(() => {
+    const light = chartTheme === "light";
+    return {
+      muted: light ? "#555555" : "#888888",
+      grid: light ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.04)",
+      cursor: light ? "rgba(0,0,0,0.06)" : "rgba(255,255,255,0.04)",
+      bar: light ? "rgba(10,10,10,0.78)" : "rgba(255,255,255,0.8)",
+      barActive: light ? "rgba(10,10,10,0.95)" : "rgba(255,255,255,0.98)",
+      barStroke: light ? "rgba(10,10,10,0.5)" : "rgba(255,255,255,0.7)",
+      barGlow: light ? "rgba(10,10,10,0.35)" : "rgba(255,255,255,0.55)",
+    };
+  }, [chartTheme]);
+
   const monthGrid = useMemo(() => {
     const y = calendarMonth.getFullYear();
     const m = calendarMonth.getMonth();
@@ -506,7 +526,7 @@ export default function BarberDashboard() {
       compact ? (
         <div className="flex flex-wrap gap-2 justify-end">{children}</div>
       ) : (
-        <div className="flex gap-2 flex-wrap pt-2 border-t border-white/[0.06]">{children}</div>
+        <div className="flex gap-2 flex-wrap pt-2 border-t border-[var(--border-color)]">{children}</div>
       );
     if (s === "pending") {
       return wrap(
@@ -589,9 +609,9 @@ export default function BarberDashboard() {
       >
         {statusDisplayLabel(b.status)}
       </span>
-      <div className="text-4xl font-bold text-white tabular-nums">{formatTime(b.slot_start)}</div>
+      <div className="text-4xl font-bold text-[var(--text-primary)] tabular-nums">{formatTime(b.slot_start)}</div>
       <div className={`${LABEL} mt-1`}>{b.service.name}</div>
-      <div className="text-base font-bold text-white mt-3">{b.customer_name}</div>
+      <div className="text-base font-bold text-[var(--text-primary)] mt-3">{b.customer_name}</div>
       <div className={`${BODY} mt-1`}>{b.service.duration_minutes} min</div>
       <a
         href={b.whatsapp_url || `https://wa.me/27${b.customer_phone.replace(/\D/g, "")}`}
@@ -619,7 +639,7 @@ export default function BarberDashboard() {
   if (loading && !today.length && !pending.length) {
     return (
       <div className={`${PAGE} flex items-center justify-center`}>
-        <p className="text-[#888888] text-sm uppercase tracking-widest">Loading dashboard…</p>
+        <p className="text-[var(--text-secondary)] text-sm uppercase tracking-widest">Loading dashboard…</p>
       </div>
     );
   }
@@ -627,11 +647,11 @@ export default function BarberDashboard() {
   return (
     <div className={PAGE}>
       {/* Header */}
-      <header className="w-full border-b border-white/[0.06] bg-black px-4 md:px-8 py-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+      <header className="w-full border-b border-[var(--border-color)] bg-[var(--bg-card)] px-4 md:px-8 py-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div className="flex items-center gap-3 flex-wrap">
-          <span className="text-white font-bold tracking-[0.2em] text-sm">BBIT</span>
-          <span className="text-white/20">|</span>
-          <span className="text-xs font-bold uppercase tracking-widest text-[#e0e0e0]">Barber Dashboard</span>
+          <span className="text-[var(--text-primary)] font-bold tracking-[0.2em] text-sm">BBIT</span>
+          <span className="text-[var(--text-secondary)]/40">|</span>
+          <span className="text-xs font-bold uppercase tracking-widest text-[var(--text-primary)]">Barber Dashboard</span>
           {pendingCount > 0 && (
             <span className="text-[10px] font-bold uppercase tracking-widest text-[#f59e0b] border border-[#f59e0b]/35 px-2 py-1 rounded-sm bg-[#f59e0b]/10">
               Requests waiting ({pendingCount})
@@ -639,7 +659,7 @@ export default function BarberDashboard() {
           )}
         </div>
         <div className="flex-1 flex justify-center">
-          <p className="text-sm md:text-base font-bold text-white tracking-[0.15em] text-center">{headerDateStr}</p>
+          <p className="text-sm md:text-base font-bold text-[var(--text-primary)] tracking-[0.15em] text-center">{headerDateStr}</p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
           <button type="button" className={btnHeaderSecondary} onClick={handleBlockToday}>
@@ -665,15 +685,15 @@ export default function BarberDashboard() {
           <h2 className={`${SECTION_TITLE} mb-6`}>Today&apos;s bookings</h2>
           {today.length === 0 ? (
             <div className={`${CARD} p-12 flex flex-col items-center justify-center text-center`}>
-              <Scissors className="h-10 w-10 text-[#888888] mb-4" strokeWidth={1.25} />
-              <p className="text-[#e0e0e0] text-sm max-w-md">
+              <Scissors className="h-10 w-10 text-[var(--text-secondary)] mb-4" strokeWidth={1.25} />
+              <p className="text-[var(--text-primary)] text-sm max-w-md">
                 No bookings today — enjoy your day Ramad
               </p>
               <a
                 href={publicBookingPageUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="mt-5 text-xs font-medium text-[#a3a3a3] hover:text-white transition-colors underline-offset-4 hover:underline"
+                className="mt-5 text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors underline-offset-4 hover:underline"
               >
                 Booking page is live →
               </a>
@@ -702,15 +722,15 @@ export default function BarberDashboard() {
 
           <div className="space-y-10">
             <div>
-              <h3 className={`${LABEL} mb-3 text-white`}>New booking requests</h3>
-              <div className="rounded-sm border border-white/[0.06] border-l-[3px] border-l-[#f59e0b] bg-[rgba(245,158,11,0.05)] shadow-[0_4px_24px_rgba(0,0,0,0.4)] overflow-hidden">
+              <h3 className={`${LABEL} mb-3 text-[var(--text-primary)]`}>New booking requests</h3>
+              <div className="rounded-sm border border-[var(--border-color)] border-l-[3px] border-l-[#f59e0b] bg-[rgba(245,158,11,0.05)] shadow-[0_4px_24px_rgba(0,0,0,0.12)] overflow-hidden">
                 {newBookingRequests.length === 0 ? (
-                  <p className={`${BODY} p-6 text-[#888888]`}>No new requests.</p>
+                  <p className={`${BODY} p-6 text-[var(--text-secondary)]`}>No new requests.</p>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm min-w-[900px]">
                       <thead>
-                        <tr className="border-b border-white/[0.08]">
+                        <tr className="border-b border-[var(--border-color)]">
                           <th className={`${LABEL} text-left p-4`}>Customer</th>
                           <th className={`${LABEL} text-left p-4`}>Phone</th>
                           <th className={`${LABEL} text-left p-4`}>Service</th>
@@ -722,12 +742,12 @@ export default function BarberDashboard() {
                       </thead>
                       <tbody>
                         {newBookingRequests.map((b) => (
-                          <tr key={b.id} className="border-b border-white/[0.05] hover:bg-black/20">
-                            <td className="p-4 font-semibold text-white">{b.customer_name}</td>
+                          <tr key={b.id} className="border-b border-[var(--border-color)] hover:bg-[color-mix(in_srgb,var(--text-primary)_6%,transparent)]">
+                            <td className="p-4 font-semibold text-[var(--text-primary)]">{b.customer_name}</td>
                             <td className={`p-4 ${BODY} tabular-nums`}>{b.customer_phone}</td>
                             <td className={`p-4 ${BODY}`}>{b.service.name}</td>
                             <td className={`p-4 ${BODY}`}>{formatDateLong(b.slot_start)}</td>
-                            <td className="p-4 text-white tabular-nums">{formatTime(b.slot_start)}</td>
+                            <td className="p-4 text-[var(--text-primary)] tabular-nums">{formatTime(b.slot_start)}</td>
                             <td className={`p-4 ${BODY} max-w-[200px] truncate`} title={b.notes}>
                               {b.notes?.trim() ? b.notes : "—"}
                             </td>
@@ -742,15 +762,15 @@ export default function BarberDashboard() {
             </div>
 
             <div>
-              <h3 className={`${LABEL} mb-3 text-white`}>Cancellation &amp; reschedule</h3>
-              <div className="rounded-sm border border-white/[0.06] border-l-[3px] border-l-[#f59e0b] bg-[rgba(245,158,11,0.05)] shadow-[0_4px_24px_rgba(0,0,0,0.4)] overflow-hidden">
+              <h3 className={`${LABEL} mb-3 text-[var(--text-primary)]`}>Cancellation &amp; reschedule</h3>
+              <div className="rounded-sm border border-[var(--border-color)] border-l-[3px] border-l-[#f59e0b] bg-[rgba(245,158,11,0.05)] shadow-[0_4px_24px_rgba(0,0,0,0.12)] overflow-hidden">
                 {changeRequests.length === 0 ? (
-                  <p className={`${BODY} p-6 text-[#888888]`}>No change requests.</p>
+                  <p className={`${BODY} p-6 text-[var(--text-secondary)]`}>No change requests.</p>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm min-w-[960px]">
                       <thead>
-                        <tr className="border-b border-white/[0.08]">
+                        <tr className="border-b border-[var(--border-color)]">
                           <th className={`${LABEL} text-left p-4`}>Type</th>
                           <th className={`${LABEL} text-left p-4`}>Customer</th>
                           <th className={`${LABEL} text-left p-4`}>Service</th>
@@ -761,7 +781,7 @@ export default function BarberDashboard() {
                       </thead>
                       <tbody>
                         {changeRequests.map((b) => (
-                          <tr key={b.id} className="border-b border-white/[0.05] hover:bg-black/20">
+                          <tr key={b.id} className="border-b border-[var(--border-color)] hover:bg-[color-mix(in_srgb,var(--text-primary)_6%,transparent)]">
                             <td className="p-4">
                               <span
                                 className={`text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-sm ${statusBadgeClass(b.status)}`}
@@ -769,7 +789,7 @@ export default function BarberDashboard() {
                                 {statusDisplayLabel(b.status)}
                               </span>
                             </td>
-                            <td className="p-4 font-semibold text-white">{b.customer_name}</td>
+                            <td className="p-4 font-semibold text-[var(--text-primary)]">{b.customer_name}</td>
                             <td className={`p-4 ${BODY}`}>{b.service.name}</td>
                             <td className={`p-4 ${BODY}`}>
                               {formatDateLong(b.slot_start)} {formatTime(b.slot_start)}
@@ -803,18 +823,20 @@ export default function BarberDashboard() {
                   type="button"
                   onClick={() => expandDay(day.date)}
                   className={`${CARD} p-4 text-left transition-all ${
-                    isToday ? "ring-1 ring-white border-white/30" : ""
+                    isToday
+                      ? "ring-1 ring-[var(--text-primary)] border-[color-mix(in_srgb,var(--text-primary)_30%,transparent)]"
+                      : ""
                   } ${day.blocked ? "opacity-80" : ""}`}
                 >
-                  <div className="text-sm font-bold text-[#888888] uppercase tracking-wider">
+                  <div className="text-sm font-bold text-[var(--text-secondary)] uppercase tracking-wider">
                     {new Date(day.date + "T12:00:00").toLocaleDateString("en-ZA", { weekday: "short" })}
                   </div>
-                  <div className="text-2xl font-bold text-white mt-1">{day.date.slice(8)}</div>
+                  <div className="text-2xl font-bold text-[var(--text-primary)] mt-1">{day.date.slice(8)}</div>
                   <div className="text-base mt-2 tabular-nums">
                     {day.count > 0 ? (
                       <span className="font-bold text-[#f59e0b]">{day.count}</span>
                     ) : (
-                      <span className="text-[#525252] font-medium">—</span>
+                      <span className="text-[var(--text-secondary)] font-medium">—</span>
                     )}
                   </div>
                   {day.blocked && (
@@ -827,7 +849,7 @@ export default function BarberDashboard() {
           {expandedDay && (
             <div className={`${CARD} mt-6 p-6`}>
               <div className="flex justify-between items-center mb-4">
-                <h3 className="text-sm font-bold uppercase tracking-widest text-white">{expandedDay}</h3>
+                <h3 className="text-sm font-bold uppercase tracking-widest text-[var(--text-primary)]">{expandedDay}</h3>
                 <button type="button" className={btnSecondary} onClick={() => expandDay(expandedDay)}>
                   Close
                 </button>
@@ -853,7 +875,7 @@ export default function BarberDashboard() {
                     label: "Cuts this month",
                     val: String(analytics.cuts_this_month ?? "—"),
                     icon: Scissors,
-                    accent: "border-t-2 border-t-white",
+                    accent: "border-t-2 border-t-[var(--text-primary)]",
                   },
                   {
                     label: "Busiest day (week)",
@@ -881,9 +903,9 @@ export default function BarberDashboard() {
                   },
                 ].map(({ label, val, icon: Icon, accent }) => (
                   <div key={label} className={`${CARD} ${accent} p-5 relative`}>
-                    <Icon className="absolute top-4 right-4 h-4 w-4 text-[#888888]" strokeWidth={1.5} />
+                    <Icon className="absolute top-4 right-4 h-4 w-4 text-[var(--text-secondary)]" strokeWidth={1.5} />
                     <p className={`${LABEL} pr-8`}>{label}</p>
-                    <p className="text-4xl font-bold text-white mt-3 break-words">{val}</p>
+                    <p className="text-4xl font-bold text-[var(--text-primary)] mt-3 break-words">{val}</p>
                   </div>
                 ))}
               </div>
@@ -892,11 +914,11 @@ export default function BarberDashboard() {
                 <div className="h-80 w-full">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={chartData} margin={{ top: 8, right: 8, left: 8, bottom: 32 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
+                      <CartesianGrid strokeDasharray="3 3" stroke={rechartsPalette.grid} vertical={false} />
                       <XAxis
                         dataKey="label"
-                        stroke="#888888"
-                        tick={{ fill: "#888888", fontSize: 10 }}
+                        stroke={rechartsPalette.muted}
+                        tick={{ fill: rechartsPalette.muted, fontSize: 10 }}
                         interval={4}
                         angle={-45}
                         textAnchor="end"
@@ -904,29 +926,29 @@ export default function BarberDashboard() {
                         tickLine={false}
                       />
                       <YAxis
-                        stroke="#888888"
-                        tick={{ fill: "#888888", fontSize: 11 }}
+                        stroke={rechartsPalette.muted}
+                        tick={{ fill: rechartsPalette.muted, fontSize: 11 }}
                         tickLine={false}
                         axisLine={false}
                         label={{
                           value: "Bookings",
                           angle: -90,
                           position: "insideLeft",
-                          fill: "#888888",
+                          fill: rechartsPalette.muted,
                           fontSize: 11,
                         }}
                       />
                       <Tooltip
-                        cursor={{ fill: "rgba(255,255,255,0.04)" }}
+                        cursor={{ fill: rechartsPalette.cursor }}
                         content={({ active, payload }) => {
                           if (!active || !payload?.length) return null;
                           const p = payload[0].payload as { fullDate?: string; date?: string; count: number };
                           const d = p.fullDate || p.date;
                           return (
-                            <div className="rounded-sm border border-white/10 bg-[#141414] px-3 py-2 shadow-xl">
-                              <p className="text-xs text-white font-medium">{d}</p>
-                              <p className="text-xs text-[#e0e0e0] mt-1">
-                                Bookings: <span className="text-white font-bold">{p.count}</span>
+                            <div className="rounded-sm border border-[var(--border-color)] bg-[var(--bg-card)] px-3 py-2 shadow-xl">
+                              <p className="text-xs text-[var(--text-primary)] font-medium">{d}</p>
+                              <p className="text-xs text-[var(--text-secondary)] mt-1">
+                                Bookings: <span className="text-[var(--text-primary)] font-bold">{p.count}</span>
                               </p>
                             </div>
                           );
@@ -934,12 +956,12 @@ export default function BarberDashboard() {
                       />
                       <Bar
                         dataKey="count"
-                        fill="rgba(255,255,255,0.8)"
+                        fill={rechartsPalette.bar}
                         activeBar={{
-                          fill: "rgba(255,255,255,0.98)",
-                          stroke: "rgba(255,255,255,0.7)",
+                          fill: rechartsPalette.barActive,
+                          stroke: rechartsPalette.barStroke,
                           strokeWidth: 1,
-                          style: { filter: "drop-shadow(0 0 14px rgba(255,255,255,0.55))" },
+                          style: { filter: `drop-shadow(0 0 14px ${rechartsPalette.barGlow})` },
                         }}
                         radius={[2, 2, 0, 0]}
                         maxBarSize={48}
@@ -959,12 +981,12 @@ export default function BarberDashboard() {
             placeholder="Search name or phone…"
             value={custSearch}
             onChange={(e) => setCustSearch(e.target.value)}
-            className="max-w-md bg-[#141414] border border-white/20 text-white placeholder:text-[#888888] rounded-sm mb-6 h-11"
+            className="max-w-md bg-[var(--bg-card)] border border-[color-mix(in_srgb,var(--text-primary)_20%,transparent)] text-[var(--text-primary)] placeholder:text-[var(--text-secondary)] rounded-sm mb-6 h-11"
           />
           <div className={`${CARD} overflow-hidden`}>
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-white/[0.12]">
+                <tr className="border-b border-[var(--border-color)]">
                   <th className={`${LABEL} text-left p-4`}>Name</th>
                   <th className={`${LABEL} text-left p-4`}>Phone</th>
                   <th className={`${LABEL} text-left p-4`}>Visits</th>
@@ -976,30 +998,30 @@ export default function BarberDashboard() {
                 {filteredCustomers.map((row) => (
                   <Fragment key={row.phone}>
                     <tr
-                      className="border-b border-white/[0.05] hover:bg-[#1a1a1a] cursor-pointer transition-colors"
+                      className="border-b border-[var(--border-color)] hover:bg-[color-mix(in_srgb,var(--text-primary)_6%,transparent)] cursor-pointer transition-colors"
                       onClick={() => openCustomer(row)}
                     >
-                      <td className="p-4 font-medium text-white">{row.name || "—"}</td>
+                      <td className="p-4 font-medium text-[var(--text-primary)]">{row.name || "—"}</td>
                       <td className={`p-4 ${BODY}`}>{row.phone}</td>
                       <td className={`p-4 ${BODY}`}>{row.total_visits}</td>
-                      <td className={`p-4 text-[#888888]`}>
+                      <td className={`p-4 text-[var(--text-secondary)]`}>
                         {row.last_visit ? new Date(row.last_visit).toLocaleString("en-ZA") : "—"}
                       </td>
                       <td className={`p-4 ${BODY}`}>{row.favorite_service || "—"}</td>
                     </tr>
                     {expandedCust === row.phone_normalized && (
-                      <tr className="bg-[#0f0f0f]">
+                      <tr className="bg-[color-mix(in_srgb,var(--text-primary)_5%,var(--bg-primary))]">
                         <td colSpan={5} className="p-6 space-y-6">
                           <div>
                             <h4 className={`${LABEL} mb-4`}>Booking history</h4>
-                            <div className="space-y-3 border-l border-white/[0.08] pl-4 ml-1">
+                            <div className="space-y-3 border-l border-[var(--border-color)] pl-4 ml-1">
                               {row.booking_history?.map((h) => (
                                 <div key={h.id} className="relative">
-                                  <div className="absolute -left-[21px] top-1.5 h-2 w-2 rounded-full bg-white/30" />
-                                  <p className="text-xs text-[#888888]">
+                                  <div className="absolute -left-[21px] top-1.5 h-2 w-2 rounded-full bg-[color-mix(in_srgb,var(--text-primary)_30%,transparent)]" />
+                                  <p className="text-xs text-[var(--text-secondary)]">
                                     {new Date(h.slot_start).toLocaleString("en-ZA")}
                                   </p>
-                                  <p className="text-sm text-[#e0e0e0] mt-0.5">
+                                  <p className="text-sm text-[var(--text-primary)] mt-0.5">
                                     {h.service_name}{" "}
                                     <span className={`text-[10px] ml-2 ${statusBadgeClass(h.status)} px-1.5 py-0.5 rounded-sm`}>
                                       {h.status}
@@ -1013,7 +1035,7 @@ export default function BarberDashboard() {
                             <label className={LABEL}>Birthday</label>
                             <Input
                               type="date"
-                              className="mt-2 max-w-xs bg-[#141414] border border-white/15 text-white rounded-sm"
+                              className="mt-2 max-w-xs bg-[var(--bg-card)] border border-[color-mix(in_srgb,var(--text-primary)_15%,transparent)] text-[var(--text-primary)] rounded-sm"
                               value={birthdayDraft}
                               onChange={(e) => setBirthdayDraft(e.target.value)}
                             />
@@ -1025,7 +1047,7 @@ export default function BarberDashboard() {
                             <div>
                               <label className={LABEL}>Staff note</label>
                               <textarea
-                                className="mt-2 w-full min-h-[100px] bg-[#141414] border border-white/[0.08] rounded-sm p-3 text-sm text-[#e0e0e0]"
+                                className="mt-2 w-full min-h-[100px] bg-[var(--bg-card)] border border-[var(--border-color)] rounded-sm p-3 text-sm text-[var(--text-primary)]"
                                 value={noteDraft}
                                 onChange={(e) => setNoteDraft(e.target.value)}
                               />
@@ -1034,7 +1056,7 @@ export default function BarberDashboard() {
                               </button>
                             </div>
                           ) : (
-                            <p className={`${BODY} text-[#888888]`}>
+                            <p className={`${BODY} text-[var(--text-secondary)]`}>
                               Staff notes require a registered customer (linked user).
                             </p>
                           )}
@@ -1064,7 +1086,7 @@ export default function BarberDashboard() {
                   href="https://calendar.google.com"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="underline font-medium text-amber-50 hover:text-white"
+                  className="underline font-medium text-amber-50 hover:text-amber-100"
                 >
                   Google Calendar
                 </a>{" "}
@@ -1080,7 +1102,7 @@ export default function BarberDashboard() {
             >
               Prev
             </button>
-            <span className="text-sm font-bold uppercase tracking-widest text-white">
+            <span className="text-sm font-bold uppercase tracking-widest text-[var(--text-primary)]">
               {calendarMonth.toLocaleString("en-ZA", { month: "long", year: "numeric" })}
             </span>
             <button
@@ -1091,7 +1113,7 @@ export default function BarberDashboard() {
               Next
             </button>
           </div>
-          <div className="grid grid-cols-7 gap-1 text-center text-[10px] uppercase tracking-widest text-[#888888] mb-2">
+          <div className="grid grid-cols-7 gap-1 text-center text-[10px] uppercase tracking-widest text-[var(--text-secondary)] mb-2">
             {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
               <div key={d}>{d}</div>
             ))}
@@ -1110,8 +1132,8 @@ export default function BarberDashboard() {
                     isBlocked
                       ? "bg-[#1a0000] border-[#ef4444]/50 text-[#ef4444]"
                       : isTodayCell
-                        ? "bg-[#141414] border-white text-white ring-1 ring-white/40"
-                        : `${CARD} text-[#e0e0e0]`
+                        ? "bg-[var(--bg-card)] border-[var(--text-primary)] text-[var(--text-primary)] ring-1 ring-[color-mix(in_srgb,var(--text-primary)_35%,transparent)]"
+                        : `${CARD} text-[var(--text-primary)]`
                   }`}
                 >
                   {cell.d}
@@ -1128,7 +1150,7 @@ export default function BarberDashboard() {
                   placeholder="Reason (optional)"
                   value={blockInline.reason}
                   onChange={(e) => setBlockInline({ ...blockInline, reason: e.target.value })}
-                  className="bg-[#141414] border border-white/15 text-white placeholder:text-[#888888] rounded-sm"
+                  className="bg-[var(--bg-card)] border border-[color-mix(in_srgb,var(--text-primary)_15%,transparent)] text-[var(--text-primary)] placeholder:text-[var(--text-secondary)] rounded-sm"
                 />
               </div>
               <button type="button" className={btnPrimary} onClick={submitInlineBlock}>
@@ -1140,7 +1162,7 @@ export default function BarberDashboard() {
             </div>
           )}
 
-          <p className={`${BODY} text-[#888888] mt-6 flex items-center gap-2`}>
+          <p className={`${BODY} text-[var(--text-secondary)] mt-6 flex items-center gap-2`}>
             <Lock className="h-3.5 w-3.5" />
             Blocked days are hidden from the booking picker. Click a date to block or unblock.
           </p>
@@ -1156,20 +1178,20 @@ export default function BarberDashboard() {
           }
         }}
       >
-        <DialogContent className="bg-[#141414] border border-white/[0.08] text-[#e0e0e0] sm:max-w-md">
+        <DialogContent className="bg-[var(--bg-card)] border border-[var(--border-color)] text-[var(--text-primary)] sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-white text-base uppercase tracking-widest">
+            <DialogTitle className="text-[var(--text-primary)] text-base uppercase tracking-widest">
               {reasonDialog?.action === "decline" ? "Decline request" : "Reject — optional note"}
             </DialogTitle>
           </DialogHeader>
-          <p className="text-xs text-[#888888]">
+          <p className="text-xs text-[var(--text-secondary)]">
             Optional text to include in the WhatsApp message to the customer.
           </p>
           <Textarea
             value={reasonDraft}
             onChange={(e) => setReasonDraft(e.target.value)}
             placeholder="Reason…"
-            className="bg-[#0a0a0a] border-white/10 text-white min-h-[100px] rounded-sm"
+            className="bg-[var(--bg-primary)] border-[var(--border-color)] text-[var(--text-primary)] min-h-[100px] rounded-sm"
           />
           <DialogFooter className="gap-2 sm:gap-0">
             <button
