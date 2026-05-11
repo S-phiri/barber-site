@@ -61,6 +61,7 @@ class GoogleCalendarService:
         # Add state parameter to identify the barber
         authorization_url, state = flow.authorization_url(
             access_type='offline',
+            prompt='consent',
             include_granted_scopes='true',
             state=barber_id
         )
@@ -114,73 +115,57 @@ class GoogleCalendarService:
             raise
     
     def _store_credentials(self, barber_id: str, credentials: Credentials):
-        """Store Google Calendar credentials for a barber"""
+        """Store Google Calendar OAuth refresh token for a barber (GoogleToken.label == barber id)."""
         from .models import GoogleToken
-        
-        token_data = {
-            'access_token': credentials.token,
-            'refresh_token': credentials.refresh_token,
-            'expires_at': credentials.expiry.isoformat() if credentials.expiry else None,
-            'scope': ' '.join(credentials.scopes) if credentials.scopes else ''
-        }
-        
-        # Get or create GoogleToken record
-        google_token, created = GoogleToken.objects.get_or_create(
-            barber_id=barber_id,
-            defaults={'token_data': token_data}
+
+        label = str(barber_id)
+        if len(label) > 64:
+            logger.error("GoogleToken.label max_length=64 exceeded for barber_id=%s", barber_id)
+            return
+
+        # Prefer incoming refresh_token; Google may omit it on some exchanges — keep stored value.
+        existing = GoogleToken.objects.filter(label=label).first()
+        new_rt = credentials.refresh_token
+        refresh_to_store = (new_rt or (existing.refresh_token if existing else "") or "").strip()
+        if not refresh_to_store:
+            logger.warning("No refresh_token to store for barber_id=%s", barber_id)
+            return
+
+        GoogleToken.objects.update_or_create(
+            label=label,
+            defaults={"refresh_token": refresh_to_store},
         )
-        
-        if not created:
-            google_token.token_data = token_data
-            google_token.save()
     
     def _get_credentials(self, barber_id: str) -> Optional[Credentials]:
-        """Get stored credentials for a barber (per-barber token_data or legacy single refresh row)."""
+        """Load refresh token via GoogleToken.label (barber UUID); refresh for an access token."""
         from google.auth.transport.requests import Request
         from .models import GoogleToken
 
         if not self.client_id or not self.client_secret:
             return None
 
-        field_names = {f.name for f in GoogleToken._meta.fields}
+        gt = GoogleToken.objects.filter(label=str(barber_id)).first()
+        # Legacy row from before per-barber labels
+        if not gt or not (gt.refresh_token or "").strip():
+            gt = GoogleToken.objects.filter(label="barber").order_by("-updated_at").first()
 
-        if "token_data" in field_names and "barber_id" in field_names:
-            try:
-                google_token = GoogleToken.objects.get(barber_id=barber_id)
-                token_data = google_token.token_data
-                credentials = Credentials(
-                    token=token_data.get("access_token"),
-                    refresh_token=token_data.get("refresh_token"),
-                    token_uri="https://oauth2.googleapis.com/token",
-                    client_id=self.client_id,
-                    client_secret=self.client_secret,
-                    scopes=self.SCOPES,
-                )
-                if token_data.get("expires_at"):
-                    credentials.expiry = datetime.fromisoformat(token_data["expires_at"])
-                return credentials
-            except GoogleToken.DoesNotExist:
-                pass
+        if not gt or not (gt.refresh_token or "").strip():
+            return None
 
-        if "refresh_token" in field_names:
-            gt = GoogleToken.objects.order_by("-updated_at").first()
-            if gt and getattr(gt, "refresh_token", None):
-                credentials = Credentials(
-                    token=None,
-                    refresh_token=gt.refresh_token,
-                    token_uri="https://oauth2.googleapis.com/token",
-                    client_id=self.client_id,
-                    client_secret=self.client_secret,
-                    scopes=self.SCOPES,
-                )
-                try:
-                    credentials.refresh(Request())
-                except Exception as e:
-                    logger.warning("Google Calendar legacy token refresh failed: %s", e)
-                    return None
-                return credentials
-
-        return None
+        credentials = Credentials(
+            token=None,
+            refresh_token=gt.refresh_token.strip(),
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            scopes=self.SCOPES,
+        )
+        try:
+            credentials.refresh(Request())
+        except Exception as e:
+            logger.warning("Google Calendar token refresh failed for barber %s: %s", barber_id, e)
+            return None
+        return credentials
     
     def create_calendar_event(self, barber_id: str, booking_data: Dict[str, Any]) -> Optional[str]:
         """

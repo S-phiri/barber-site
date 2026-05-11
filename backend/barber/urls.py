@@ -3,7 +3,7 @@ URL patterns for the barber app
 """
 
 from django.urls import path
-from . import google_auth_views, booking_views, staff_views
+from . import google_auth_views, booking_views, staff_dashboard_views, staff_views
 
 urlpatterns = [
     # Google Calendar authentication URLs
@@ -15,6 +15,12 @@ urlpatterns = [
     # Staff dashboard (is_staff only) — list before generic booking_id routes
     path('today/', staff_views.today_bookings),
     path('pending/', staff_views.pending_bookings),
+    # Compat: older frontend expects these under /api/barber/bookings/*
+    path('bookings/today/', staff_views.today_bookings),
+    path('bookings/pending/', staff_views.pending_bookings),
+    path('upcoming/', staff_dashboard_views.dashboard_upcoming),
+    path('customers/', staff_dashboard_views.dashboard_customers_ramad),
+    path('analytics/', staff_dashboard_views.dashboard_analytics_month),
     path('bookings-by-day/', staff_views.bookings_by_day),
     path('week/', staff_views.week_summary),
     path('analytics/', staff_views.analytics),
@@ -27,6 +33,10 @@ urlpatterns = [
     path('bookings/<uuid:booking_id>/reject-cancellation/', staff_views.booking_reject_cancellation),
     path('bookings/<uuid:booking_id>/approve-reschedule/', staff_views.booking_approve_reschedule),
     path('bookings/<uuid:booking_id>/reject-reschedule/', staff_views.booking_reject_reschedule),
+    # Per-barber blocked dates (date-string API)
+    path('blocked-dates/', staff_views.blocked_dates_for_barber),
+    path('blocked-dates/<str:date_str>/', staff_views.blocked_date_delete_by_date),
+    # Legacy blocked dates API (pk-based)
     path('blocked-dates/', staff_views.blocked_dates_list_create),
     path('blocked-dates/<int:pk>/', staff_views.blocked_date_delete),
     path('customer-notes/<int:customer_id>/', staff_views.customer_notes),

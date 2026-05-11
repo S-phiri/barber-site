@@ -147,8 +147,9 @@ class CustomerNote(models.Model):
 
 
 class BlockedDate(models.Model):
-    """Shop-wide day off — no bookings on this calendar date."""
-    date = models.DateField(unique=True)
+    """Per-barber day off — no bookings for this barber on this calendar date."""
+    barber = models.ForeignKey(Barber, on_delete=models.CASCADE, null=True, blank=True)
+    date = models.DateField()
     reason = models.CharField(max_length=200, blank=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -161,6 +162,9 @@ class BlockedDate(models.Model):
 
     class Meta:
         ordering = ['date']
+        constraints = [
+            models.UniqueConstraint(fields=["barber", "date"], name="unique_blocked_date_per_barber"),
+        ]
 
     def __str__(self):
         return f"Blocked {self.date}"

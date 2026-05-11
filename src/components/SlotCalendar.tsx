@@ -33,7 +33,7 @@ export function SlotCalendar({
   onSlotHold,
   disabled = false,
 }: SlotCalendarProps) {
-  const { slots, loading, error, refetch } = useSlots(
+  const { slots, blockedDates, loading, error, refetch } = useSlots(
     selectedDate,
     barberId,
     serviceId,
@@ -45,8 +45,19 @@ export function SlotCalendar({
     return dayjs().add(i, "day").format("YYYY-MM-DD");
   });
 
+  const isDateBlocked = (d: string) => blockedDates.includes(d);
+
+  useEffect(() => {
+    if (!blockedDates.length) return;
+    if (!blockedDates.includes(selectedDate)) return;
+    const candidates = Array.from({ length: 7 }, (_, i) => dayjs().add(i, "day").format("YYYY-MM-DD"));
+    const next = candidates.find((d) => !blockedDates.includes(d));
+    if (next) onDateChange(next);
+  }, [blockedDates, selectedDate, onDateChange]);
+
   const handleSlotClick = async (slot: TimeSlot) => {
     if (disabled || holdingSlot) return;
+    if (isDateBlocked(selectedDate)) return;
 
     try {
       setHoldingSlot(slot.id);
@@ -103,7 +114,7 @@ export function SlotCalendar({
                 variant={selectedDate === date ? "default" : "outline"}
                 className="text-xs p-2 h-auto flex flex-col"
                 onClick={() => onDateChange(date)}
-                disabled={disabled}
+                disabled={disabled || isDateBlocked(date)}
               >
                 <span className="font-semibold">
                   {dayjs(date).format("ddd")}

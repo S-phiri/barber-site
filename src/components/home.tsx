@@ -13,13 +13,13 @@ function Home() {
     if (!raw) return;
     const el = document.getElementById(raw);
     if (el) {
-      el.scrollIntoView({ behavior: "smooth" });
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }, [location.pathname, location.hash]);
 
   return (
     <div className="w-full min-h-screen bg-[var(--bg-primary)]">
-      <HeroSection whatsappNumber="+27123456789" />
+      <HeroSection whatsappNumber="+27670238197" />
       <GallerySection />
       <ServicesSection />
       <ContactSection />

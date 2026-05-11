@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/contexts/auth";
+import { me as apiMe } from "@/lib/api";
 
 export default function Login() {
   const [username, setUsername] = useState(""); // username OR email
@@ -48,7 +49,10 @@ export default function Login() {
     setLoading(true);
     try {
       await login(username, password);
-      // Navigation will be handled by the useEffect above
+      // Fetch fresh /me once and redirect based on is_staff (no cached role).
+      const fresh = await apiMe();
+      const isStaff = Boolean(fresh?.is_staff);
+      navigate(isStaff ? "/barber-dashboard" : "/dashboard", { replace: true });
     } catch (err: any) {
       setError(err?.message || "Invalid credentials");
     } finally {

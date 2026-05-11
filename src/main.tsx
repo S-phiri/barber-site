@@ -2,6 +2,8 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import "./index.css";
+import "@/revamp/styles.css";
+import "@/revamp/site.css";
 import { initBbitTheme } from "@/lib/bbitTheme";
 import App from "./App";
 import Home from "@/components/home";
@@ -17,13 +19,16 @@ import Admin from "@/pages/Admin";
 import Login from "@/pages/Login";
 import Signup from "@/pages/Signup";
 import Dashboard from "@/pages/Dashboard";
-import BarberDashboard from "@/pages/BarberDashboard";
+import BarberDashboard from "./pages/BarberDashboard";
 import BarberRoute from "@/components/BarberRoute";
 import Products from "@/pages/Products";
 import BookingLayout from "@/pages/BookingLayout";
 import GoogleCalendarBooking from "@/pages/GoogleCalendarBooking";
 import PaymentSuccess from "@/pages/PaymentSuccess";
 import PaymentCancel from "@/pages/PaymentCancel";
+import RevampLayout from "@/revamp/RevampLayout";
+import SiteApp from "@/revamp/SiteApp";
+import Dashboards from "@/revamp/Dashboards";
 import { AuthProvider } from "@/contexts/auth";
 import PrivateRoute from "@/components/PrivateRoute";
 import { BookingProvider } from "@/contexts/BookingContext";
@@ -35,8 +40,32 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <AuthProvider>
       <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <Routes>
+          <Route
+            path="/revamp"
+            element={
+              <RevampLayout>
+                <SiteApp />
+              </RevampLayout>
+            }
+          />
+          <Route
+            path="/revamp/dashboards"
+            element={
+              <RevampLayout>
+                <Dashboards />
+              </RevampLayout>
+            }
+          />
           <Route path="/" element={<App />}>
-            <Route index element={<Home />} />
+            <Route
+              index
+              element={
+                <RevampLayout>
+                  <SiteApp />
+                </RevampLayout>
+              }
+            />
+            <Route path="legacy" element={<Home />} />
             <Route path="login" element={<Login />} />
             <Route path="signup" element={<Signup />} />
             <Route path="book" element={<PrivateRoute><GoogleCalendarBooking /></PrivateRoute>} />

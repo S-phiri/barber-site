@@ -417,6 +417,23 @@ def analytics(request):
         per_day.append({"date": cur.isoformat(), "count": counts_by_day.get(cur.isoformat(), 0)})
         cur += timedelta(days=1)
 
+    # Last 30 calendar days (ending today): confirmed bookings only, by local calendar date
+    daily_start = now.date() - timedelta(days=29)
+    confirmed_by_local_date = Counter()
+    for dt in Booking.objects.filter(
+        status="confirmed",
+        slot__start_at__date__gte=daily_start,
+        slot__start_at__date__lte=now.date(),
+    ).values_list("slot__start_at", flat=True):
+        d_key = timezone.localtime(dt, TZ).date().isoformat()
+        confirmed_by_local_date[d_key] += 1
+    daily_counts = []
+    for offset in range(30):
+        d = daily_start + timedelta(days=offset)
+        daily_counts.append(
+            {"date": d.isoformat(), "count": confirmed_by_local_date.get(d.isoformat(), 0)}
+        )
+
     return Response(
         {
             "cuts_this_month": cuts_month,
@@ -425,6 +442,7 @@ def analytics(request):
             "returning_customers_this_month": returning_customers,
             "most_popular_service": most_popular,
             "bookings_per_day": per_day,
+            "daily_counts": daily_counts,
         }
     )
 
@@ -602,6 +620,65 @@ def blocked_date_delete(request, pk: int):
         gcal = GoogleCalendarService()
         gcal.delete_calendar_event(str(barber.id), row.gcal_event_id)
     row.delete()
+    return Response(status=204)
+
+
+@api_view(["GET", "POST"])
+@permission_classes([IsAuthenticated])
+def blocked_dates_for_barber(request):
+    """
+    GET: returns all blocked dates as a list of YYYY-MM-DD strings.
+    POST: accepts { "date": "YYYY-MM-DD" } and creates a BlockedDate row for that barber.
+    """
+    if request.method == "POST" and not request.user.is_staff:
+        return _forbidden()
+
+    if request.method == "GET":
+        dates = list(
+            BlockedDate.objects.all()
+            .order_by("date")
+            .values_list("date", flat=True)
+        )
+        return Response([d.isoformat() for d in dates])
+
+    try:
+        barber = Barber.objects.get(user=request.user)
+    except Barber.DoesNotExist:
+        return Response({"detail": "No barber profile found for this user"}, status=404)
+
+    body = request.data or {}
+    d = body.get("date")
+    if not d:
+        return Response({"detail": "date required"}, status=400)
+    try:
+        day = date.fromisoformat(str(d)[:10])
+    except ValueError:
+        return Response({"detail": "Invalid date"}, status=400)
+
+    BlockedDate.objects.update_or_create(
+        barber=barber,
+        date=day,
+        defaults={"created_by": request.user},
+    )
+    return Response({"date": day.isoformat()}, status=201)
+
+
+@api_view(["DELETE"])
+@permission_classes([IsAuthenticated, IsStaffUser])
+def blocked_date_delete_by_date(request, date_str: str):
+    """Delete the authenticated barber's BlockedDate row for the given YYYY-MM-DD date."""
+    if not request.user.is_staff:
+        return _forbidden()
+    try:
+        barber = Barber.objects.get(user=request.user)
+    except Barber.DoesNotExist:
+        return Response({"detail": "No barber profile found for this user"}, status=404)
+    try:
+        day = date.fromisoformat(str(date_str)[:10])
+    except ValueError:
+        return Response({"detail": "Invalid date"}, status=400)
+
+    BlockedDate.objects.filter(barber=barber, date=day).delete()
     return Response(status=204)
 
 

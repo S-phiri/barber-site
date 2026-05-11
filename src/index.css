@@ -27,40 +27,40 @@
 
   .bbit-btn-primary {
     @apply w-full rounded-sm py-3 px-4 font-semibold text-sm uppercase tracking-wide transition-colors;
-    background: #ffffff;
+    background: rgba(245, 158, 11, 0.9);
     color: #0a0a0a;
   }
 
   .bbit-btn-primary:hover {
-    background: #e5e5e5;
+    background: #e8a951;
   }
 
   html[data-theme="light"] .bbit-btn-primary {
-    background: #0a0a0a;
-    color: #ffffff;
+    background: rgba(245, 158, 11, 0.9);
+    color: #0a0a0a;
   }
 
   html[data-theme="light"] .bbit-btn-primary:hover {
-    background: #262626;
+    background: #e8a951;
   }
 
   .bbit-btn-primary-inline {
     @apply inline-flex items-center justify-center rounded-sm px-4 py-2 font-semibold text-xs uppercase tracking-wide transition-colors;
-    background: #ffffff;
+    background: rgba(245, 158, 11, 0.9);
     color: #0a0a0a;
   }
 
   .bbit-btn-primary-inline:hover {
-    background: #e5e5e5;
+    background: #e8a951;
   }
 
   html[data-theme="light"] .bbit-btn-primary-inline {
-    background: #0a0a0a;
-    color: #ffffff;
+    background: rgba(245, 158, 11, 0.9);
+    color: #0a0a0a;
   }
 
   html[data-theme="light"] .bbit-btn-primary-inline:hover {
-    background: #262626;
+    background: #e8a951;
   }
 
   a.bbit-btn-primary {
@@ -70,19 +70,19 @@
   }
 
   .bbit-step-active {
-    background: #ffffff;
+    background: rgba(245, 158, 11, 0.9);
     color: #0a0a0a;
     border-color: transparent;
   }
 
   html[data-theme="light"] .bbit-step-active {
-    background: #0a0a0a;
-    color: #ffffff;
+    background: rgba(245, 158, 11, 0.9);
+    color: #0a0a0a;
   }
 
   .bbit-service-selected {
-    border-color: var(--text-primary) !important;
-    background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+    border-color: #e8a951 !important;
+    background: color-mix(in srgb, rgba(245, 158, 11, 0.9) 10%, transparent);
   }
 
   @layer base {

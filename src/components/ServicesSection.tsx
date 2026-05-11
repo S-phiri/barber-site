@@ -12,15 +12,13 @@ import { Scissors, Sparkles, Palette } from "lucide-react";
 interface ServiceProps {
   title: string;
   description: string;
-  price: string;
   icon: React.ReactNode;
 }
 
 const ServiceCard = (
-  { title, description, price, icon }: ServiceProps = {
+  { title, description, icon }: ServiceProps = {
     title: "Service",
     description: "Service description",
-    price: "R0",
     icon: <Scissors className="h-6 w-6" />,
   },
 ) => {
@@ -42,8 +40,7 @@ const ServiceCard = (
       <CardContent className="pt-0">
         <div className="h-[1px] w-full bg-gradient-to-r from-transparent via-[var(--border-color)] to-transparent my-4"></div>
       </CardContent>
-      <CardFooter className="flex justify-between items-center pt-0">
-        <span className="text-3xl font-bold text-[var(--text-primary)] group-hover:opacity-90 transition-colors">{price}</span>
+      <CardFooter className="flex justify-end items-center pt-0">
         <div className="text-xs text-[var(--text-secondary)] uppercase tracking-wide font-medium">
           Book Now
         </div>
@@ -57,19 +54,16 @@ const ServicesSection = () => {
     {
       title: "Beard Trim",
       description: "Expert beard shaping and styling — 30 minutes",
-      price: "R150",
       icon: <Sparkles className="h-6 w-6" />,
     },
     {
       title: "Haircut",
       description: "Full precision cut and finish — 60 minutes",
-      price: "R250",
       icon: <Scissors className="h-6 w-6" />,
     },
     {
       title: "Dye + Haircut",
       description: "Colour treatment with full haircut — 90 minutes",
-      price: "R350",
       icon: <Palette className="h-6 w-6" />,
     },
   ];
@@ -94,7 +88,6 @@ const ServicesSection = () => {
               key={index}
               title={service.title}
               description={service.description}
-              price={service.price}
               icon={service.icon}
             />
           ))}

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Menu, Moon, Sun } from "lucide-react";
 import { useAuth } from "@/contexts/auth";
@@ -19,8 +19,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-const NAV_WRAP =
-  "fixed top-0 left-0 right-0 z-50 h-[60px] border-b border-white/[0.06] bg-black/[0.85] backdrop-blur-[8px]";
+const NAV_WRAP_BASE =
+  "fixed top-0 left-0 right-0 z-50 h-[60px] border-b transition-colors duration-300";
 
 const MOBILE_ORDER: Array<
   | { kind: "section"; id: string; label: string }
@@ -40,6 +40,7 @@ export default function GlobalNav() {
 
   const [theme, setTheme] = useState<BbitTheme>(() => getBbitTheme());
   const [pendingBarberCount, setPendingBarberCount] = useState(0);
+  const [navSolid, setNavSolid] = useState(false);
 
   useEffect(() => {
     const sync = () => setTheme(getBbitTheme());
@@ -53,6 +54,17 @@ export default function GlobalNav() {
       window.removeEventListener("storage", onStorage);
     };
   }, []);
+
+  useEffect(() => {
+    if (location.pathname !== "/") {
+      setNavSolid(true);
+      return;
+    }
+    const onScroll = () => setNavSolid(window.scrollY > 80);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [location.pathname]);
 
   useEffect(() => {
     if (!user || !staffUser) {
@@ -90,8 +102,19 @@ export default function GlobalNav() {
   const productsActive =
     location.pathname === "/products" || location.pathname.startsWith("/products/");
 
+  const navWrap = useMemo(
+    () =>
+      cn(
+        NAV_WRAP_BASE,
+        navSolid
+          ? "border-white/[0.06] bg-black/[0.85] backdrop-blur-[8px]"
+          : "border-transparent bg-transparent backdrop-blur-0",
+      ),
+    [navSolid],
+  );
+
   return (
-    <header className={NAV_WRAP}>
+    <header className={navWrap}>
       <div className="mx-auto flex h-full max-w-7xl items-center justify-between px-4 md:px-8">
         <Link to="/" className="font-bold tracking-widest text-white shrink-0 z-10">
           BBIT
