@@ -35,4 +35,10 @@ core
 # Secrets — never commit (use .env.example + docs for placeholders)
 backend/.env
 .env
+.env.local
+
+# Local-only design exports / scratch (not part of app source)
+barber design/
+Barber Revamp/
+server/
 
