@@ -198,7 +198,4 @@ GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/ap
 # -----------------------------------------------------------------------------
 # Booking Provider Configuration (read from .env)
 # -----------------------------------------------------------------------------
-BOOKING_PROVIDER = os.getenv("BOOKING_PROVIDER", "google")  # google, fresha, custom
-
-# Fresha Configuration
-FRESHA_BOOKING_URL = os.getenv("FRESHA_BOOKING_URL", "")
+BOOKING_PROVIDER = os.getenv("BOOKING_PROVIDER", "google")  # google, custom

@@ -1,31 +1,18 @@
-import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Spinner } from "@/components/ui/spinner";
-import { EmptyState } from "@/components/EmptyState";
-import { FreshaWidget } from "@/components/FreshaWidget";
 import { useAuth } from "@/contexts/auth";
-import type { Service } from "@/types/types";
 
 export default function Book() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [isFreshaOpen, setIsFreshaOpen] = useState(false);
 
   const handleBookAppointment = () => {
     if (!user) {
-      // Redirect to login if not authenticated
       navigate("/login");
       return;
     }
-    
-    // Open Fresha booking widget
-    setIsFreshaOpen(true);
-  };
-
-  const handleCloseFresha = () => {
-    setIsFreshaOpen(false);
+    navigate("/book");
   };
 
   return (
@@ -56,11 +43,11 @@ export default function Book() {
                       </div>
                       <h3 className="text-xl font-semibold mb-2">Online Booking</h3>
                       <p className="text-gray-600 mb-4">
-                        Book your appointment online with our easy-to-use booking system. 
+                        Book your appointment online with our easy-to-use booking system.
                         Choose your service, date, and time.
                       </p>
                     </div>
-                    <Button 
+                    <Button
                       onClick={handleBookAppointment}
                       className="w-full"
                       size="lg"
@@ -81,11 +68,11 @@ export default function Book() {
                       </div>
                       <h3 className="text-xl font-semibold mb-2">Call Us</h3>
                       <p className="text-gray-600 mb-4">
-                        Prefer to speak with someone? Give us a call and we'll help you 
+                        Prefer to speak with someone? Give us a call and we'll help you
                         schedule your appointment.
                       </p>
                     </div>
-                    <Button 
+                    <Button
                       variant="outline"
                       className="w-full"
                       size="lg"
@@ -155,12 +142,6 @@ export default function Book() {
           </Card>
         </div>
       </div>
-
-      {/* Fresha Booking Widget */}
-      <FreshaWidget 
-        isOpen={isFreshaOpen} 
-        onClose={handleCloseFresha} 
-      />
     </div>
   );
 }
