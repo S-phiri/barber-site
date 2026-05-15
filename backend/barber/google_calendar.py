@@ -19,6 +19,20 @@ logger = logging.getLogger(__name__)
 
 User = get_user_model()
 
+# Must match barber/urls.py google-calendar/callback/ and Google Cloud Console (127.0.0.1, not localhost).
+_DEFAULT_REDIRECT_URI = "http://127.0.0.1:8000/api/barber/google-calendar/callback/"
+
+
+def oauth_redirect_uri() -> str:
+    """Single source of truth for OAuth redirect — same value for auth URL and token exchange."""
+    uri = getattr(settings, "GOOGLE_REDIRECT_URI", None) or getattr(
+        settings, "GOOGLE_OAUTH_REDIRECT_URI", None
+    )
+    if uri and str(uri).strip():
+        return str(uri).strip()
+    return _DEFAULT_REDIRECT_URI
+
+
 class GoogleCalendarService:
     """Service for managing Google Calendar integration"""
     
@@ -26,10 +40,31 @@ class GoogleCalendarService:
     SCOPES = ['https://www.googleapis.com/auth/calendar']
     
     def __init__(self):
-        self.client_id = getattr(settings, 'GOOGLE_CLIENT_ID', None)
-        self.client_secret = getattr(settings, 'GOOGLE_CLIENT_SECRET', None)
-        self.redirect_uri = getattr(settings, 'GOOGLE_REDIRECT_URI', 'http://localhost:8000/auth/google/callback/')
-        
+        self.client_id = getattr(settings, "GOOGLE_CLIENT_ID", None)
+        self.client_secret = getattr(settings, "GOOGLE_CLIENT_SECRET", None)
+        self.redirect_uri = oauth_redirect_uri()
+
+    def _make_oauth_flow(self) -> Flow:
+        """Build Flow with the same redirect_uri used for authorization and callback."""
+        redirect_uri = oauth_redirect_uri()
+        self.redirect_uri = redirect_uri
+        if not self.client_id or not self.client_secret:
+            raise ValueError("Google OAuth credentials not configured")
+        flow = Flow.from_client_config(
+            {
+                "web": {
+                    "client_id": self.client_id,
+                    "client_secret": self.client_secret,
+                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                    "token_uri": "https://oauth2.googleapis.com/token",
+                    "redirect_uris": [redirect_uri],
+                }
+            },
+            scopes=self.SCOPES,
+        )
+        flow.redirect_uri = redirect_uri
+        return flow
+
     def get_authorization_url(self, barber_id: str) -> str:
         """
         Generate authorization URL for barber to connect their Google Calendar
@@ -40,24 +75,9 @@ class GoogleCalendarService:
         Returns:
             Authorization URL for OAuth flow
         """
-        if not self.client_id or not self.client_secret:
-            raise ValueError("Google OAuth credentials not configured")
-            
-        flow = Flow.from_client_config(
-            {
-                "web": {
-                    "client_id": self.client_id,
-                    "client_secret": self.client_secret,
-                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                    "token_uri": "https://oauth2.googleapis.com/token",
-                    "redirect_uris": [self.redirect_uri]
-                }
-            },
-            scopes=self.SCOPES
-        )
-        
-        flow.redirect_uri = self.redirect_uri
-        
+        flow = self._make_oauth_flow()
+        logger.info("Google OAuth authorization redirect_uri=%s", self.redirect_uri)
+
         # Add state parameter to identify the barber
         authorization_url, state = flow.authorization_url(
             access_type='offline',
@@ -79,24 +99,9 @@ class GoogleCalendarService:
         Returns:
             Token information
         """
-        if not self.client_id or not self.client_secret:
-            raise ValueError("Google OAuth credentials not configured")
-            
-        flow = Flow.from_client_config(
-            {
-                "web": {
-                    "client_id": self.client_id,
-                    "client_secret": self.client_secret,
-                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                    "token_uri": "https://oauth2.googleapis.com/token",
-                    "redirect_uris": [self.redirect_uri]
-                }
-            },
-            scopes=self.SCOPES
-        )
-        
-        flow.redirect_uri = self.redirect_uri
-        
+        flow = self._make_oauth_flow()
+        logger.info("Google OAuth token exchange redirect_uri=%s", self.redirect_uri)
+
         try:
             flow.fetch_token(code=code)
             credentials = flow.credentials

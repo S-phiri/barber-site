@@ -20,7 +20,8 @@ from django.urls import path, include
 from rest_framework_simplejwt.views import TokenRefreshView
 from bookings.auth_views import login, register, me  # Use JWT auth views
 from bookings.views import logout_view, csrf_token
-from barber.views import gcal_start_auth, gcal_callback
+from barber.views import gcal_start_auth
+from barber.google_auth_views import google_calendar_callback
 
 def health(_):
     return JsonResponse({"status": "ok"})
@@ -38,7 +39,7 @@ urlpatterns = [
     path("api/auth/me/", me),            # Use JWT me
     path("api/", include("bookings.urls")),
     path("api/gcal/start-auth/", gcal_start_auth),
-    path("api/gcal/callback/", gcal_callback),
+    path("api/gcal/callback/", google_calendar_callback),
     path("api/", include("barber.api")),
     path("api/barber/", include("barber.urls")),
 ]

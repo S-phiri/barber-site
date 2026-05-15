@@ -2,7 +2,44 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
 import { http } from "@/lib/api";
+import { useAuth } from "@/contexts/auth";
 import { AnimatedNumber, Card, Chip, Eyebrow, Icon, useToast } from "@/revamp/shared";
+
+/** Match hardcoded eyebrow: "Saturday · 18 April 2026" — weekday · D MMMM YYYY */
+function formatTodayHeaderDate(d: Date): string {
+  const weekday = d.toLocaleDateString("en-GB", { weekday: "long" });
+  const month = d.toLocaleDateString("en-GB", { month: "long" });
+  const day = d.getDate();
+  const year = d.getFullYear();
+  return `${weekday} · ${day} ${month} ${year}`;
+}
+
+function parseAccessTokenPayload(access: string | null): Record<string, unknown> | null {
+  if (!access) return null;
+  const parts = access.split(".");
+  if (parts.length < 2) return null;
+  try {
+    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const pad = base64.length % 4 ? "=".repeat(4 - (base64.length % 4)) : "";
+    const json = atob(base64 + pad);
+    return JSON.parse(json) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+/** Display name from JWT: first matching claim, first letter capitalised. */
+function displayNameFromAccessToken(access: string | null): string | null {
+  const p = parseAccessTokenPayload(access);
+  if (!p) return null;
+  const raw = String(
+    p.name ?? p.given_name ?? p.username ?? p.preferred_username ?? p.email ?? "",
+  ).trim();
+  if (!raw) return null;
+  const first = raw.split(/\s+/)[0] ?? raw;
+  if (!first) return null;
+  return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
+}
 
 type MeBooking = {
   id: string;
@@ -35,21 +72,31 @@ function normalizeMeBooking(raw: Record<string, unknown>): MeBooking {
   };
 }
 
-export default function CustomerDashboard({ displayName = "Mandy" }: { displayName?: string }) {
+export default function CustomerDashboard({ displayName: displayNameProp }: { displayName?: string }) {
   const toast = useToast();
   const navigate = useNavigate();
-  const [loyaltyCount, setLoyaltyCount] = useState(4); // 4 of 6 stamps
+  const { access } = useAuth();
   const [bookings, setBookings] = useState<MeBooking[]>([]);
   const [nowTick, setNowTick] = useState(0);
+
+  const headerDate = useMemo(() => formatTodayHeaderDate(new Date()), [nowTick]);
+
+  const customerName = useMemo(() => {
+    const fromToken = displayNameFromAccessToken(access);
+    if (fromToken) return fromToken;
+    const prop = displayNameProp?.trim();
+    if (prop) return prop.charAt(0).toUpperCase() + prop.slice(1).toLowerCase();
+    return "there";
+  }, [access, displayNameProp]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const access = localStorage.getItem("access");
+        const token = localStorage.getItem("access");
         const res = await http("/api/bookings/me/", {
           method: "GET",
-          ...(access ? { headers: { Authorization: `Bearer ${access}` } } : {}),
+          ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
         });
         if (!res.ok || cancelled) return;
         const data = (await res.json()) as unknown;
@@ -79,6 +126,12 @@ export default function CustomerDashboard({ displayName = "Mandy" }: { displayNa
       .sort((a, c) => a.t - c.t);
     return candidates[0]?.b ?? null;
   }, [bookings, nowTick]);
+
+  const headerSubtitle = useMemo(() => {
+    if (!nextBooking) return "Book your next cut below.";
+    const dayLabel = dayjs(nextBooking.start_ts).format("dddd");
+    return `Your next appointment is on ${dayLabel}.`;
+  }, [nextBooking]);
 
   const nextAppt = useMemo(() => {
     if (!nextBooking) return null;
@@ -121,16 +174,6 @@ export default function CustomerDashboard({ displayName = "Mandy" }: { displayNa
         status: b.status,
       }));
   }, [bookings]);
-
-  const notifs = useMemo(
-    () => [
-      { id: "n1", unread: true, icon: "check" as const, title: "Booking confirmed for Tue 21 April · 14:30", meta: "2 HOURS AGO" },
-      { id: "n2", unread: true, icon: "gift" as const, title: "Only 2 more cuts until a free Hot Towel Shave", meta: "YESTERDAY" },
-      { id: "n3", unread: false, icon: "sparkle" as const, title: "New gallery: April Edition is up — see the latest looks", meta: "3 DAYS AGO" },
-      { id: "n4", unread: false, icon: "calendar" as const, title: "Ramad is away Sat 18 — book any other day", meta: "5 DAYS AGO" },
-    ],
-    [],
-  );
 
   const totalVisits = useMemo(
     () =>
@@ -208,23 +251,15 @@ export default function CustomerDashboard({ displayName = "Mandy" }: { displayNa
     toast({ title: `Rebooking ${s.name}`, body: "Opening booking page…", icon: "scissors" });
   };
 
-  const fillStamp = () => {
-    if (loyaltyCount < 6) setLoyaltyCount((c) => c + 1);
-    else {
-      setLoyaltyCount(0);
-      toast({ title: "Free shave unlocked!", body: "Ramad has added a voucher to your account.", icon: "gift" });
-    }
-  };
-
   return (
     <div className="page">
       <div className="page-header enter">
         <div>
-          <Eyebrow>Saturday · 18 April 2026</Eyebrow>
+          <Eyebrow>{headerDate}</Eyebrow>
           <h1 className="page-title" style={{ marginTop: 10 }}>
-            Welcome back, <em>{displayName}</em>.
+            Welcome back, <em>{customerName}</em>.
           </h1>
-          <p className="page-subtitle">Your chair&apos;s waiting on Tuesday. Two more cuts to a free shave.</p>
+          <p className="page-subtitle">{headerSubtitle}</p>
         </div>
         <div style={{ display: "flex", gap: 10 }}>
           <button type="button" className="btn" onClick={() => navigate("/bookings")}>
@@ -356,50 +391,12 @@ export default function CustomerDashboard({ displayName = "Mandy" }: { displayNa
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
             <div>
               <Eyebrow>Loyalty</Eyebrow>
-              <div style={{ fontFamily: "Instrument Serif, serif", fontSize: 28, marginTop: 8, lineHeight: 1.1, letterSpacing: "-0.01em" }}>
-                <em>
-                  Every 6<sup style={{ fontSize: 16 }}>th</sup> cut is on us
-                </em>
-              </div>
             </div>
             <Icon name="gift" size={18} />
           </div>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 22 }}>
-            <span className="loyalty-num foil">{loyaltyCount}</span>
-            <span className="mono" style={{ fontSize: 12, color: "var(--text-3)", letterSpacing: ".14em" }}>
-              / 6 STAMPS
-            </span>
-          </div>
-          <div className="stamp-row" style={{ marginTop: 18 }}>
-            {Array.from({ length: 6 }).map((_, i) => {
-              const isFilled = i < loyaltyCount;
-              const isNext = i === loyaltyCount;
-              return (
-                <div
-                  key={i}
-                  className={`stamp ${isFilled ? "filled" : isNext ? "next" : ""}`}
-                  onClick={isNext ? fillStamp : undefined}
-                  style={{ cursor: isNext ? "pointer" : "default" }}
-                >
-                  {isFilled ? <Icon name="scissors" size={14} /> : <span className="mono" style={{ fontSize: 11 }}>{i + 1}</span>}
-                </div>
-              );
-            })}
-          </div>
-          <div
-            style={{
-              marginTop: 18,
-              padding: "12px 14px",
-              background: "var(--amber-soft)",
-              borderRadius: 12,
-              border: "1px solid color-mix(in oklab, var(--amber) 20%, transparent)",
-            }}
-          >
-            <div style={{ fontSize: 12.5, fontWeight: 600 }}>
-              <span className="foil">2 more cuts</span> to unlock a free hot towel shave
-            </div>
-            <div style={{ fontSize: 11, color: "var(--text-2)", marginTop: 4 }}>Earned after your next visit on 21 April.</div>
-          </div>
+          <p style={{ marginTop: 22, color: "var(--text-2)", fontSize: 15, lineHeight: 1.55 }}>
+            Loyalty rewards coming soon
+          </p>
         </Card>
       </div>
 
@@ -428,10 +425,10 @@ export default function CustomerDashboard({ displayName = "Mandy" }: { displayNa
         <Card>
           <Eyebrow>Spent this year</Eyebrow>
           <div className="metric-num" style={{ marginTop: 14 }}>
-            R <AnimatedNumber value={1480} />
+            —
           </div>
-          <div className="metric-delta" style={{ color: "var(--text-2)", marginTop: 10 }}>
-            Avg R 160 / visit
+          <div className="mono" style={{ fontSize: 11, color: "var(--text-3)", marginTop: 12, lineHeight: 1.45, letterSpacing: "0.04em" }}>
+            Tracked once payments go live.
           </div>
         </Card>
         <Card>
@@ -567,21 +564,9 @@ export default function CustomerDashboard({ displayName = "Mandy" }: { displayNa
                 What&apos;s new
               </h2>
             </div>
-            <Chip tone="amber">{notifs.filter((n) => n.unread).length}</Chip>
           </div>
-          <div>
-            {notifs.map((n) => (
-              <div key={n.id} className={`notif-item ${n.unread ? "unread" : ""}`}>
-                <div className="notif-icon">
-                  <Icon name={n.icon} size={14} />
-                </div>
-                <div>
-                  <div className="notif-title">{n.title}</div>
-                  <div className="notif-meta">{n.meta}</div>
-                </div>
-                {n.unread ? <span className="dot" style={{ background: "var(--amber)", marginTop: 12 }} /> : null}
-              </div>
-            ))}
+          <div style={{ padding: "28px 8px 12px", textAlign: "center", color: "var(--text-2)", fontSize: 14 }}>
+            No new notifications.
           </div>
         </Card>
       </div>

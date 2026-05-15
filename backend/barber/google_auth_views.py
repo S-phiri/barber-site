@@ -2,8 +2,10 @@
 Google Calendar OAuth views for barber authentication
 """
 
-from django.shortcuts import redirect
-from django.http import JsonResponse
+import os
+from urllib.parse import urlencode
+
+from django.http import HttpResponseRedirect
 from django.contrib.auth.decorators import login_required
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -12,6 +14,7 @@ from rest_framework import status
 from .google_calendar import GoogleCalendarService
 from .models import Barber, GoogleToken
 import logging
+import traceback
 
 logger = logging.getLogger(__name__)
 
@@ -43,11 +46,18 @@ def google_calendar_auth(request):
         })
         
     except Exception as e:
-        logger.error(f"Error initiating Google Calendar auth: {e}")
+        logger.exception("Error initiating Google Calendar auth: %s", e)
+        traceback.print_exc()
         return Response(
-            {"error": "Failed to initiate Google Calendar authentication"}, 
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            {"error": "Failed to initiate Google Calendar authentication", "detail": str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
+
+
+def _gcal_frontend_redirect(status: str, message: str):
+    frontend_url = "http://localhost:5173/barber-dashboard"
+    return HttpResponseRedirect(f"{frontend_url}?gcal={status}&msg={message}")
+
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
@@ -56,47 +66,40 @@ def google_calendar_callback(request):
     Handle Google Calendar OAuth callback.
     Unauthenticated: Google redirects here without JWT; barber identity comes from OAuth `state` (barber id).
     """
-    try:
-        code = request.GET.get('code')
-        state = request.GET.get('state')  # barber UUID from auth initiation
-        
-        if not code:
-            return Response(
-                {"error": "Authorization code not provided"}, 
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        if not state:
-            return Response(
-                {"error": "State parameter missing"}, 
-                status=status.HTTP_400_BAD_REQUEST
-            )
+    query = dict(request.GET)
+    logger.info("google_calendar_callback query_params=%s", query)
 
-        if not Barber.objects.filter(pk=state).exists():
-            return Response(
-                {"error": "Invalid state: unknown barber"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        
-        # Initialize Google Calendar service
-        calendar_service = GoogleCalendarService()
-        
-        # Exchange code for token (credentials stored keyed by barber id from state)
-        token_info = calendar_service.exchange_code_for_token(code, state)
-        
-        return Response({
-            "success": True,
-            "message": "Google Calendar connected successfully",
-            "access_token": token_info.get('access_token'),
-            "expires_at": token_info.get('expires_at')
-        })
-        
-    except Exception as e:
-        logger.error(f"Error in Google Calendar callback: {e}")
-        return Response(
-            {"error": "Failed to connect Google Calendar"}, 
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+    oauth_error = request.GET.get("error")
+    if oauth_error:
+        desc = request.GET.get("error_description") or oauth_error
+        logger.warning("Google OAuth returned error=%s desc=%s", oauth_error, desc)
+        return _gcal_frontend_redirect("error", str(desc))
+
+    code = request.GET.get("code")
+    state = request.GET.get("state")  # barber UUID from auth initiation
+
+    if not code:
+        logger.warning("google_calendar_callback missing code (refresh or direct visit?)")
+        return _gcal_frontend_redirect(
+            "error",
+            "Authorization code not provided. Use Connect Google Calendar on the dashboard, then approve in Google.",
         )
+
+    if not state:
+        return _gcal_frontend_redirect("error", "State parameter missing.")
+
+    if not Barber.objects.filter(pk=state).exists():
+        return _gcal_frontend_redirect("error", "Invalid state: unknown barber.")
+
+    try:
+        calendar_service = GoogleCalendarService()
+        calendar_service.exchange_code_for_token(code, state)
+        logger.info("Google Calendar connected for barber_id=%s", state)
+        return _gcal_frontend_redirect("connected", "Google Calendar connected successfully.")
+    except Exception as e:
+        logger.exception("Error in Google Calendar callback: %s", e)
+        traceback.print_exc()
+        return _gcal_frontend_redirect("error", str(e))
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -114,30 +117,16 @@ def google_calendar_status(request):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # Same GoogleToken resolution as GoogleCalendarService._get_credentials (field=label)
         label_key = str(barber.id)
-        gt = GoogleToken.objects.filter(label=label_key).first()
-        token_row_resolution = "primary"
-        if not gt or not (gt.refresh_token or "").strip():
-            gt = GoogleToken.objects.filter(label="barber").order_by("-updated_at").first()
-            token_row_resolution = "legacy_barber_label" if gt else "none"
+        gt = GoogleToken.objects.filter(label=str(barber.id)).first()
+        is_connected = bool(gt and (gt.refresh_token or "").strip())
         logger.info(
             "google_calendar_status barber_id=%s query_field=label query_value=%s "
-            "token_row_resolution=%s matched_google_token_pk=%s matched_label=%s has_nonempty_refresh_token=%s",
+            "matched_google_token_pk=%s matched_label=%s is_connected=%s",
             label_key,
             label_key,
-            token_row_resolution,
             getattr(gt, "pk", None),
             getattr(gt, "label", None),
-            bool(gt and (gt.refresh_token or "").strip()),
-        )
-
-        calendar_service = GoogleCalendarService()
-        is_connected = calendar_service.is_barber_connected(label_key)
-        logger.info(
-            "google_calendar_status barber_id=%s is_connected=%s "
-            "(is_barber_connected uses _get_credentials: same label + refresh OAuth refresh)",
-            label_key,
             is_connected,
         )
 
@@ -147,10 +136,11 @@ def google_calendar_status(request):
         })
         
     except Exception as e:
-        logger.error(f"Error checking Google Calendar status: {e}")
+        logger.exception("Error checking Google Calendar status: %s", e)
+        traceback.print_exc()
         return Response(
-            {"error": "Failed to check Google Calendar status"}, 
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            {"error": "Failed to check Google Calendar status", "detail": str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
 @api_view(['POST'])
@@ -179,8 +169,9 @@ def google_calendar_disconnect(request):
         })
         
     except Exception as e:
-        logger.error(f"Error disconnecting Google Calendar: {e}")
+        logger.exception("Error disconnecting Google Calendar: %s", e)
+        traceback.print_exc()
         return Response(
-            {"error": "Failed to disconnect Google Calendar"}, 
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            {"error": "Failed to disconnect Google Calendar", "detail": str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )

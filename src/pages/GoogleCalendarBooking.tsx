@@ -13,10 +13,8 @@ import { useServices } from "@/hooks/useServices";
 import { useBarbers } from "@/hooks/useBarbers";
 import { toast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
-import { isGoogleEmbed } from "@/lib/bookingProvider";
-import { GoogleApptModal } from "@/components/GoogleApptModal";
-import { getBarberApptUrl, type BarberKey } from "@/lib/barbers";
-import { createBarberBookingRequest } from "@/lib/api";
+import { type BarberKey } from "@/lib/barbers";
+import { createBarberBookingRequest, http } from "@/lib/api";
 import { messageToRamadNewRequest, messageCustomerSelfReminder, waMeLink } from "@/lib/bookingMessages";
 
 const RAMAD_WHATSAPP_DIGITS = "27670238197";
@@ -32,12 +30,6 @@ interface BookingFormData {
   customerEmail: string;
   notes: string;
 }
-
-const TIME_SLOTS = [
-  "09:00", "09:30", "10:00", "10:30", "11:00", "11:30",
-  "12:00", "12:30", "13:00", "13:30", "14:00", "14:30",
-  "15:00", "15:30", "16:00", "16:30", "17:00", "17:30",
-];
 
 const STEP_LABELS = ["Service", "Barber", "Date", "Time", "Details"];
 
@@ -81,8 +73,8 @@ export default function GoogleCalendarBooking() {
 
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState(1);
-  const [isGoogleModalOpen, setIsGoogleModalOpen] = useState(false);
-  const [embedConfirmTime, setEmbedConfirmTime] = useState("10:00");
+  const [availableSlots, setAvailableSlots] = useState<{ time: string; available: boolean }[]>([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
   const [submitted, setSubmitted] = useState<{
     bookingId: string;
     serviceName: string;
@@ -134,6 +126,55 @@ export default function GoogleCalendarBooking() {
     return () => clearTimeout(t);
   }, [submitted?.bookingId, submitted?.ramadHref]);
 
+  useEffect(() => {
+    if (step !== 4 || !booking.serviceId) return;
+    let cancelled = false;
+    const dateStr = format(booking.date, "yyyy-MM-dd");
+    const sp = new URLSearchParams({
+      date: dateStr,
+      service_id: String(booking.serviceId),
+    });
+    if (booking.barberId) sp.set("barber_id", String(booking.barberId));
+
+    (async () => {
+      setSlotsLoading(true);
+      try {
+        const res = await http(`/api/barber/available-slots/?${sp.toString()}`);
+        if (!res.ok) {
+          const msg = await res.text();
+          throw new Error(msg || `Failed to load slots (${res.status})`);
+        }
+        const data = (await res.json()) as unknown;
+        const rows = Array.isArray(data) ? data : [];
+        if (!cancelled) {
+          setAvailableSlots(
+            rows
+              .filter((x): x is { time: string; available: boolean } => {
+                const o = x as Record<string, unknown>;
+                return typeof o?.time === "string" && typeof o?.available === "boolean";
+              })
+              .map((x) => ({ time: x.time, available: x.available })),
+          );
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setAvailableSlots([]);
+          toast({
+            title: "Couldn’t load times",
+            description: e instanceof Error ? e.message : "Please try again.",
+            variant: "destructive",
+          });
+        }
+      } finally {
+        if (!cancelled) setSlotsLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [step, booking.date, booking.barberId, booking.serviceId]);
+
   const handleServiceChange = (serviceId: string) => {
     setBooking((prev) => ({ ...prev, serviceId }));
     setStep(2);
@@ -161,47 +202,20 @@ export default function GoogleCalendarBooking() {
     setBooking((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleOpenGoogleModal = () => {
-    if (!booking.barberKey) {
-      toast({
-        title: "Error",
-        description: "Please select a barber first.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const apptUrl = getBarberApptUrl(booking.barberKey);
-
-    if (!apptUrl) {
-      toast({
-        title: "Error",
-        description: "Appointment scheduling is not available for this barber.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setIsGoogleModalOpen(true);
-  };
-
-  const handleCloseGoogleModal = () => {
-    setIsGoogleModalOpen(false);
-    setStep(5);
-  };
-
-  const toStartIso = (d: Date, hhmm: string) => {
-    const [hh, mm] = hhmm.split(":").map((x) => parseInt(x, 10));
-    const dt = new Date(d);
-    dt.setHours(Number.isFinite(hh) ? hh : 9, Number.isFinite(mm) ? mm : 0, 0, 0);
-    return dt.toISOString();
+  /** Selected calendar day + HH:mm interpreted as Africa/Johannesburg (SAST, UTC+2); returns UTC ISO for the API. */
+  const toStartIso = (calendarDate: Date, hhmm: string) => {
+    const dateStr = format(calendarDate, "yyyy-MM-dd");
+    const [yy, mo, dd] = dateStr.split("-").map((x) => parseInt(x, 10));
+    const [hhS, mmS] = hhmm.split(":").map((x) => parseInt(x, 10));
+    const h = Number.isFinite(hhS) ? hhS : 9;
+    const mi = Number.isFinite(mmS) ? mmS : 0;
+    const utcMs = Date.UTC(yy, mo - 1, dd, h - 2, mi, 0, 0);
+    return new Date(utcMs).toISOString();
   };
 
   const handleSubmitBooking = async () => {
-    const timeStr = isGoogleEmbed() ? embedConfirmTime : booking.time;
-    const requiredFields = isGoogleEmbed()
-      ? ["serviceId", "barberId", "customerName", "customerPhone"]
-      : ["serviceId", "barberId", "time", "customerName", "customerPhone"];
+    const timeStr = booking.time;
+    const requiredFields = ["serviceId", "barberId", "time", "customerName", "customerPhone"];
 
     const missingFields = requiredFields.filter((field) => {
       const v = booking[field as keyof BookingFormData];
@@ -279,21 +293,6 @@ export default function GoogleCalendarBooking() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const getAvailableTimes = () => {
-    if (booking.date.toDateString() === new Date().toDateString()) {
-      const now = new Date();
-      const currentHour = now.getHours();
-      const currentMinute = now.getMinutes();
-
-      return TIME_SLOTS.filter((time) => {
-        const [hour, minute] = time.split(":").map(Number);
-        return hour > currentHour || (hour === currentHour && minute > currentMinute);
-      });
-    }
-
-    return TIME_SLOTS;
   };
 
   const selectedService = services.find((s) => String(s.id) === String(booking.serviceId));
@@ -530,7 +529,10 @@ export default function GoogleCalendarBooking() {
                     mode="single"
                     selected={booking.date}
                     onSelect={handleDateSelect}
-                    disabled={(date) => date < new Date() || date.getDay() === 0}
+                    disabled={(date) => {
+                      const start = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+                      return start(date) < start(new Date()) || date.getDay() === 0;
+                    }}
                     initialFocus
                   />
                 </PopoverContent>
@@ -548,68 +550,44 @@ export default function GoogleCalendarBooking() {
 
           {step === 4 && (
             <div className="space-y-4">
-              {isGoogleEmbed() ? (
-                <>
-                  <div className="rounded-sm border border-[var(--border-color)] bg-[var(--bg-card)] p-6 space-y-4">
-                    <p className="text-sm text-[var(--text-secondary)]">
-                      Pick your exact date and time in Google&apos;s scheduling flow, then confirm the time below.
-                    </p>
-                    <div className="text-sm space-y-1 text-[var(--text-primary)]">
-                      <p>
-                        <span className="text-[var(--text-secondary)]">Date: </span>
-                        {booking.date ? format(booking.date, "PPP") : "—"}
-                      </p>
-                      <p>
-                        <span className="text-[var(--text-secondary)]">Barber: </span>
-                        {barbers.find((b) => String(b.id) === String(booking.barberId))?.display_name ?? "—"}
-                      </p>
-                    </div>
-                    <button type="button" onClick={handleOpenGoogleModal} className="bbit-btn-primary w-full">
-                      Pick time on Google
-                    </button>
-                  </div>
-                  <div className="flex gap-2 flex-wrap">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="border-[var(--border-color)] text-[var(--text-primary)] bg-transparent"
-                      onClick={() => setStep(3)}
-                    >
-                      Back
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                    {getAvailableTimes().map((time) => (
-                      <Button
-                        key={time}
-                        type="button"
-                        variant="outline"
-                        className={cn(
-                          "h-12 rounded-sm",
-                          booking.time === time
-                            ? "bbit-btn-primary-inline border-transparent"
-                            : "border-[var(--border-color)] bg-transparent text-[var(--text-primary)] hover:bg-[var(--bg-primary)]",
-                        )}
-                        onClick={() => handleTimeSelect(time)}
-                      >
-                        <Clock className="mr-2 h-4 w-4 shrink-0" />
-                        {time}
-                      </Button>
-                    ))}
-                  </div>
+              {slotsLoading ? (
+                <p className="text-sm text-[var(--text-secondary)]">Loading available times…</p>
+              ) : null}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {availableSlots.map(({ time: slotTime, available }) => (
                   <Button
+                    key={slotTime}
                     type="button"
                     variant="outline"
-                    className="border-[var(--border-color)] text-[var(--text-primary)] bg-transparent hover:bg-[var(--bg-primary)]"
-                    onClick={() => setStep(3)}
+                    disabled={!available}
+                    className={cn(
+                      "h-12 rounded-sm",
+                      !available && "opacity-45 cursor-not-allowed",
+                      available &&
+                        booking.time === slotTime &&
+                        "bbit-btn-primary-inline border-transparent",
+                      available &&
+                        booking.time !== slotTime &&
+                        "border-[var(--border-color)] bg-transparent text-[var(--text-primary)] hover:bg-[var(--bg-primary)]",
+                    )}
+                    onClick={() => {
+                      if (!available) return;
+                      handleTimeSelect(slotTime);
+                    }}
                   >
-                    Back
+                    <Clock className="mr-2 h-4 w-4 shrink-0" />
+                    {slotTime}
                   </Button>
-                </>
-              )}
+                ))}
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                className="border-[var(--border-color)] text-[var(--text-primary)] bg-transparent hover:bg-[var(--bg-primary)]"
+                onClick={() => setStep(3)}
+              >
+                Back
+              </Button>
             </div>
           )}
 
@@ -618,21 +596,6 @@ export default function GoogleCalendarBooking() {
               <p className="text-xs text-[var(--color-amber)] bg-[var(--color-amber)]/10 border border-[var(--color-amber)]/25 rounded-sm p-3">
                 Note: A deposit may be required to secure your booking. Ramad will confirm deposit details when accepting.
               </p>
-
-              {isGoogleEmbed() && (
-                <div className="space-y-2">
-                  <Label htmlFor="embedTime" className={labelClass}>
-                    Confirm time (Google Calendar)
-                  </Label>
-                  <Input
-                    id="embedTime"
-                    type="time"
-                    className={cn(inputClass, "max-w-full sm:max-w-[220px]")}
-                    value={embedConfirmTime}
-                    onChange={(e) => setEmbedConfirmTime(e.target.value)}
-                  />
-                </div>
-              )}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -707,7 +670,7 @@ export default function GoogleCalendarBooking() {
                 <div className="flex justify-between gap-4 py-2">
                   <span className="text-sm text-[var(--text-secondary)]">Time</span>
                   <span className="text-sm font-medium text-[var(--text-primary)] text-right">
-                    {isGoogleEmbed() ? embedConfirmTime : booking.time}
+                    {booking.time}
                   </span>
                 </div>
                 <div className="flex justify-between gap-4 py-2 last:pb-0">
@@ -744,15 +707,6 @@ export default function GoogleCalendarBooking() {
           )}
         </div>
       </div>
-
-      {isGoogleEmbed() && booking.barberKey && (
-        <GoogleApptModal
-          apptUrl={getBarberApptUrl(booking.barberKey) || ""}
-          open={isGoogleModalOpen}
-          onClose={handleCloseGoogleModal}
-          title={`Book with ${barbers.find((b) => String(b.id) === String(booking.barberId))?.display_name || "Barber"}`}
-        />
-      )}
     </div>
   );
 }

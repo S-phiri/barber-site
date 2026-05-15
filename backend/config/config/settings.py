@@ -193,7 +193,14 @@ SHOP_ADDRESS = os.getenv("SHOP_ADDRESS", "Ramad Barbershop, Cape Town")
 # -----------------------------------------------------------------------------
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
-GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/api/barber/google-calendar/callback/")
+# OAuth redirect must match Django route + Google Cloud Console exactly (use 127.0.0.1, not localhost).
+_GOOGLE_REDIRECT_DEFAULT = "http://127.0.0.1:8000/api/barber/google-calendar/callback/"
+GOOGLE_REDIRECT_URI = (
+    os.getenv("GOOGLE_REDIRECT_URI")
+    or os.getenv("GOOGLE_OAUTH_REDIRECT_URI")
+    or _GOOGLE_REDIRECT_DEFAULT
+)
+GOOGLE_OAUTH_REDIRECT_URI = GOOGLE_REDIRECT_URI
 
 # -----------------------------------------------------------------------------
 # Booking Provider Configuration (read from .env)

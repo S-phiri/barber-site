@@ -2,19 +2,152 @@
 Booking views with Google Calendar integration
 """
 
+from datetime import date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
+
+from django.db.models import Q
+from django.utils import timezone
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 from django.contrib.auth import get_user_model
-from .models import Barber, Service, Booking, Slot
+
+from .models import Barber, BlockedDate, Booking, Service
 from .queries import create_pending_booking_request
 from .google_calendar import GoogleCalendarService
-from datetime import datetime, timedelta
 import logging
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
+
+TZ = ZoneInfo("Africa/Johannesburg")
+
+# Bookings that still reserve the slot in the calendar
+_BLOCKING_STATUSES = frozenset(
+    ("pending", "confirmed", "cancellation_requested", "reschedule_requested")
+)
+
+
+def _default_barber():
+    b = Barber.objects.filter(display_name__iexact="Ramad", is_active=True).first()
+    if b:
+        return b
+    b = Barber.objects.filter(slug__iexact="ramad", is_active=True).first()
+    if b:
+        return b
+    return Barber.objects.filter(is_active=True).order_by("display_name").first()
+
+
+def _slot_time_labels():
+    """Half-hour labels from 09:00 through 17:30 inclusive."""
+    labels = []
+    minutes = 9 * 60
+    end = 17 * 60 + 30
+    while minutes <= end:
+        h, m = divmod(minutes, 60)
+        labels.append(f"{h:02d}:{m:02d}")
+        minutes += 30
+    return labels
+
+
+def _parse_hhmm(s: str):
+    parts = str(s).strip().split(":")
+    if len(parts) != 2:
+        return None
+    try:
+        h, m = int(parts[0]), int(parts[1])
+    except ValueError:
+        return None
+    if not (0 <= h <= 23 and 0 <= m <= 59):
+        return None
+    return h, m
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def available_slots(request):
+    """
+    GET ?date=YYYY-MM-DD&service_id=...&barber_id=optional
+    Returns [{ "time": "09:00", "available": true }, ...] in SAST wall-clock labels;
+    overlap checks use UTC-aware Slot times from the database.
+    """
+    date_raw = request.query_params.get("date")
+    service_id = request.query_params.get("service_id")
+    barber_id = request.query_params.get("barber_id")
+
+    if not date_raw:
+        return Response({"error": "date query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
+    if not service_id:
+        return Response({"error": "service_id query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        day = date.fromisoformat(str(date_raw)[:10])
+    except ValueError:
+        return Response({"error": "Invalid date"}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        service = Service.objects.get(id=service_id, active=True)
+    except Service.DoesNotExist:
+        return Response({"error": "Invalid service_id"}, status=status.HTTP_400_BAD_REQUEST)
+
+    if barber_id:
+        barber = Barber.objects.filter(id=barber_id, is_active=True).first()
+    else:
+        barber = _default_barber()
+
+    if not barber:
+        return Response({"error": "No active barber found"}, status=status.HTTP_400_BAD_REQUEST)
+
+    duration = timedelta(minutes=service.duration_minutes)
+    labels = _slot_time_labels()
+    now_local = timezone.now().astimezone(TZ)
+
+    # Sunday in Johannesburg: weekday Monday=0 .. Sunday=6
+    if day.weekday() == 6:
+        return Response([{"time": lab, "available": False} for lab in labels])
+
+    blocked = BlockedDate.objects.filter(date=day).filter(Q(barber=barber) | Q(barber__isnull=True)).exists()
+    if blocked:
+        return Response([{"time": lab, "available": False} for lab in labels])
+
+    day_start = datetime.combine(day, time.min, tzinfo=TZ)
+    day_end = day_start + timedelta(days=1)
+
+    blocking_qs = (
+        Booking.objects.filter(
+            barber=barber,
+            status__in=_BLOCKING_STATUSES,
+            slot__start_at__lt=day_end,
+            slot__end_at__gt=day_start,
+        )
+        .select_related("slot")
+    )
+    occupied = [(b.slot.start_at, b.slot.end_at) for b in blocking_qs]
+
+    out = []
+    for lab in labels:
+        parsed = _parse_hhmm(lab)
+        if not parsed:
+            out.append({"time": lab, "available": False})
+            continue
+        hh, mm = parsed
+        candidate_start = datetime.combine(day, time(hh, mm, 0), tzinfo=TZ)
+        candidate_end = candidate_start + duration
+
+        if day == now_local.date() and candidate_start <= now_local:
+            out.append({"time": lab, "available": False})
+            continue
+
+        busy = False
+        for bs, be in occupied:
+            if candidate_start < be and candidate_end > bs:
+                busy = True
+                break
+        out.append({"time": lab, "available": not busy})
+
+    return Response(out)
+
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])

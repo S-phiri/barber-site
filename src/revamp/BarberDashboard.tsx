@@ -1,7 +1,15 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatedNumber, Card, Chip, Eyebrow, Icon, useToast } from "@/revamp/shared";
 import dayjs from "dayjs";
 import { http } from "@/lib/api";
+
+const formatSAST = (iso: string) =>
+  new Date(iso).toLocaleTimeString('en-ZA', {
+    timeZone: 'Africa/Johannesburg',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
 
 type RequestRow = { id: string; name: string; service: string; time: string; phone: string; note?: string };
 type ChangeRow = { id: string; name: string; service: string; kind: string; from: string; to: string };
@@ -52,41 +60,48 @@ type MonthAnalyticsApi = {
   daily_counts: AnalyticsDailyCountApi[];
 };
 
-type MonthCell = { muted?: boolean; n: number; bookings?: number; blocked?: boolean; today?: boolean };
+type MonthCell = { muted?: boolean; n: number; blocked?: boolean; today?: boolean };
 
-function buildMonth(): MonthCell[] {
-  // Build month grid for April 2026. April 1, 2026 = Wednesday.
-  const firstDow = 3; // Wed (Mon=0)
-  const daysInMonth = 30;
-  const prevPad = firstDow;
+const JOBURG_TZ = "Africa/Johannesburg";
+
+/** Today's calendar Y-M-D in Africa/Johannesburg (for date comparisons). */
+function getJohannesburgCalendarDateParts(d: Date = new Date()): { y: number; m: number; day: number } {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: JOBURG_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(d);
+  const v = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((p) => p.type === type)?.value ?? 0);
+  return { y: v("year"), m: v("month") - 1, day: v("day") };
+}
+
+function isCalendarDayBeforeJohannesburgToday(
+  y: number,
+  month0: number,
+  day: number,
+  jToday: { y: number; m: number; day: number },
+): boolean {
+  if (y !== jToday.y) return y < jToday.y;
+  if (month0 !== jToday.m) return month0 < jToday.m;
+  return day < jToday.day;
+}
+
+/** Monday-first weekday index for the 1st of the month (Mon=0 … Sun=6). */
+function leadingEmptyCells(year: number, month: number): number {
+  const first = new Date(year, month, 1);
+  return (first.getDay() + 6) % 7;
+}
+
+function buildMonth(year: number, month: number, todayDate: Date = new Date()): MonthCell[] {
+  const prevPad = leadingEmptyCells(year, month);
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
   const cells: MonthCell[] = [];
   for (let i = 0; i < prevPad; i++) cells.push({ muted: true, n: 0 });
-  const bookings: Record<number, number> = {
-    1: 2,
-    2: 4,
-    3: 6,
-    4: 5,
-    7: 3,
-    8: 7,
-    9: 1,
-    10: 2,
-    13: 4,
-    14: 3,
-    15: 6,
-    16: 2,
-    17: 5,
-    20: 1,
-    22: 2,
-    23: 4,
-    24: 3,
-    27: 5,
-    28: 1,
-    29: 3,
-    30: 2,
-  };
-  const blocked = new Set([11, 18, 25]);
+  const jToday = getJohannesburgCalendarDateParts(todayDate);
+  const isToday = (d: number) => jToday.y === year && jToday.m === month && jToday.day === d;
   for (let d = 1; d <= daysInMonth; d++) {
-    cells.push({ n: d, bookings: bookings[d] || 0, blocked: blocked.has(d), today: d === 18 });
+    cells.push({ n: d, blocked: false, today: isToday(d) });
   }
   while (cells.length % 7 !== 0) cells.push({ muted: true, n: 0 });
   return cells;
@@ -94,16 +109,42 @@ function buildMonth(): MonthCell[] {
 
 export default function BarberDashboard({ displayName = "Ramad" }: { displayName?: string }) {
   const toast = useToast();
+  const [calendarView, setCalendarView] = useState(() => {
+    const d = new Date();
+    return { y: d.getFullYear(), m: d.getMonth() };
+  });
   const [requests, setRequests] = useState<RequestRow[]>([]);
   const [changes, setChanges] = useState<ChangeRow[]>([]);
   const [today, setToday] = useState<TodayRow[]>([]);
   const [gcalConnected, setGcalConnected] = useState<boolean | null>(null);
-  const [month, setMonth] = useState<MonthCell[]>(() => buildMonth());
   const [search, setSearch] = useState("");
   const [upcomingDays, setUpcomingDays] = useState<UpcomingDayApi[]>([]);
   const [customerRows, setCustomerRows] = useState<CustomerRowApi[]>([]);
   const [monthAnalytics, setMonthAnalytics] = useState<MonthAnalyticsApi | null>(null);
   const [blockedDates, setBlockedDates] = useState<Set<string>>(() => new Set());
+  const blockedDatesInitialFetchDone = useRef(false);
+
+  const upcomingByIso = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const d of upcomingDays) {
+      const raw = String(d.date ?? "").trim();
+      const key = raw.length >= 10 ? raw.slice(0, 10) : raw;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) continue;
+      map.set(key, Number(d.count ?? 0));
+    }
+    return map;
+  }, [upcomingDays]);
+
+  const blockMonthGrid = useMemo(() => {
+    const { y, m } = calendarView;
+    const base = buildMonth(y, m, new Date());
+    const prefix = `${y}-${String(m + 1).padStart(2, "0")}`;
+    return base.map((c) => {
+      if (!c.n || c.muted) return c;
+      const iso = `${prefix}-${String(c.n).padStart(2, "0")}`;
+      return { ...c, blocked: blockedDates.has(iso) };
+    });
+  }, [calendarView, blockedDates]);
 
   async function getJson(primaryPath: string) {
     const res = await http(primaryPath);
@@ -126,7 +167,7 @@ export default function BarberDashboard({ displayName = "Ramad" }: { displayName
       const service = String(b?.service_name ?? b?.service?.name ?? b?.service ?? "");
       const phone = String(b?.customer_phone ?? b?.phone ?? "");
       const startIso = String(b?.start_time ?? b?.start ?? b?.slot_start_at ?? "");
-      const time = startIso ? dayjs(startIso).format("ddd D, HH:mm") : "";
+      const time = startIso ? `${dayjs(startIso).format("ddd D")}, ${formatSAST(startIso)}` : "";
       const note = (b?.notes ?? b?.note) ? String(b?.notes ?? b?.note) : undefined;
       const status = String(b?.status ?? "pending");
 
@@ -136,7 +177,9 @@ export default function BarberDashboard({ displayName = "Ramad" }: { displayName
         const toTime = String(b?.new_requested_time ?? "");
         const to =
           toIso
-            ? dayjs(toIso).format("ddd D, HH:mm")
+            ? toIso.includes("T")
+              ? `${dayjs(toIso).format("ddd D")}, ${formatSAST(toIso)}`
+              : dayjs(toIso).format("ddd D, HH:mm")
             : toTime
               ? toTime
               : status === "cancellation_requested"
@@ -170,7 +213,6 @@ export default function BarberDashboard({ displayName = "Ramad" }: { displayName
       const name = String(b?.customer_name ?? b?.name ?? "");
       const service = String(b?.service_name ?? b?.service?.name ?? b?.service ?? "");
       const startIso = String(b?.start_time ?? b?.slot_start ?? b?.slot_start_at ?? b?.slot?.start_at ?? "");
-      const timeOnly = startIso.includes("T") ? startIso.split("T")[1]?.slice(0, 5) : "";
       const durMin = Number(b?.duration_minutes ?? b?.duration ?? 0);
       const start = startIso ? dayjs(startIso) : null;
       const end = start && durMin ? start.add(durMin, "minute") : null;
@@ -181,7 +223,7 @@ export default function BarberDashboard({ displayName = "Ramad" }: { displayName
 
       return {
         id,
-        time: timeOnly || (start ? start.format("HH:mm") : ""),
+        time: startIso ? formatSAST(startIso) : "",
         duration: durMin ? `${durMin}m` : "",
         name,
         service,
@@ -365,7 +407,10 @@ export default function BarberDashboard({ displayName = "Ramad" }: { displayName
     };
   }, []);
 
+  // GET /api/barber/blocked-dates/ once on mount (no re-fetch after block/unblock — toggles use setBlockedForIso).
   useEffect(() => {
+    if (blockedDatesInitialFetchDone.current) return;
+    blockedDatesInitialFetchDone.current = true;
     let cancelled = false;
     (async () => {
       try {
@@ -383,13 +428,6 @@ export default function BarberDashboard({ displayName = "Ramad" }: { displayName
         }
         if (cancelled) return;
         setBlockedDates(normalized);
-        setMonth((m) =>
-          m.map((c) => {
-            if (!c.n || c.muted) return c;
-            const iso = `2026-04-${String(c.n).padStart(2, "0")}`;
-            return { ...c, blocked: normalized.has(iso) };
-          }),
-        );
       } catch (e) {
         console.error("[blocked-dates] failed", e);
       }
@@ -406,14 +444,6 @@ export default function BarberDashboard({ displayName = "Ramad" }: { displayName
       else next.delete(iso);
       return next;
     });
-    setMonth((m) =>
-      m.map((c) => {
-        if (!c.n || c.muted) return c;
-        const cIso = `2026-04-${String(c.n).padStart(2, "0")}`;
-        if (cIso !== iso) return c;
-        return { ...c, blocked: isBlocked };
-      }),
-    );
   };
 
   // Simulated "current time" — (just triggers subtle re-render like prototype)
@@ -491,9 +521,12 @@ export default function BarberDashboard({ displayName = "Ramad" }: { displayName
   };
 
   const toggleBlock = (idx: number) => {
-    const cell = month[idx];
+    const cell = blockMonthGrid[idx];
     if (!cell || cell.muted || !cell.n) return;
-    const iso = `2026-04-${String(cell.n).padStart(2, "0")}`;
+    const { y, m: mo } = calendarView;
+    if (new Date(y, mo, cell.n).getDay() === 0) return;
+    const iso = `${y}-${String(mo + 1).padStart(2, "0")}-${String(cell.n).padStart(2, "0")}`;
+    const monthName = new Date(y, mo, 1).toLocaleDateString("en-GB", { month: "long" });
     const willBlock = !Boolean(cell.blocked);
     (async () => {
       try {
@@ -509,7 +542,7 @@ export default function BarberDashboard({ displayName = "Ramad" }: { displayName
           });
           if (!res.ok) throw new Error(`POST /api/barber/blocked-dates/ failed (${res.status})`);
           setBlockedForIso(iso, true);
-          toast({ title: `Blocked April ${cell.n}`, icon: "ban" });
+          toast({ title: `Blocked ${monthName} ${cell.n}`, icon: "ban" });
         } else {
           const res = await http(`/api/barber/blocked-dates/${iso}/`, {
             method: "DELETE",
@@ -517,7 +550,7 @@ export default function BarberDashboard({ displayName = "Ramad" }: { displayName
           });
           if (!res.ok) throw new Error(`DELETE /api/barber/blocked-dates/${iso}/ failed (${res.status})`);
           setBlockedForIso(iso, false);
-          toast({ title: `Unblocked April ${cell.n}`, icon: "check" });
+          toast({ title: `Unblocked ${monthName} ${cell.n}`, icon: "check" });
         }
       } catch (e) {
         console.error("[blocked-dates toggle] failed", e);
@@ -527,10 +560,12 @@ export default function BarberDashboard({ displayName = "Ramad" }: { displayName
   };
 
   const toggleTodayBlocked = async () => {
-    const todayDay = month.find((c) => c.today)?.n;
+    const todayDay = blockMonthGrid.find((c) => c.today)?.n;
     if (!todayDay) return;
-    const iso = `2026-04-${String(todayDay).padStart(2, "0")}`;
-    const isCurrentlyBlocked = blockedDates.has(iso) || Boolean(month.find((c) => c.n === todayDay)?.blocked);
+    const { y, m: mo } = calendarView;
+    if (new Date(y, mo, todayDay).getDay() === 0) return;
+    const iso = `${y}-${String(mo + 1).padStart(2, "0")}-${String(todayDay).padStart(2, "0")}`;
+    const isCurrentlyBlocked = blockedDates.has(iso) || Boolean(blockMonthGrid.find((c) => c.n === todayDay)?.blocked);
     const willBlock = !isCurrentlyBlocked;
     try {
       const access = localStorage.getItem("access");
@@ -597,6 +632,35 @@ export default function BarberDashboard({ displayName = "Ramad" }: { displayName
       end: endLabel,
     };
   }, [monthAnalytics?.daily_counts, now]);
+
+  const blockCalendarHeading = useMemo(() => {
+    const { y, m } = calendarView;
+    return new Date(y, m, 1).toLocaleDateString("en-GB", { month: "long", year: "numeric" }).toUpperCase();
+  }, [calendarView]);
+
+  const goBlockCalendarPrev = () => {
+    setCalendarView((cv) => {
+      let { y, m } = cv;
+      m -= 1;
+      if (m < 0) {
+        m = 11;
+        y -= 1;
+      }
+      return { y, m };
+    });
+  };
+
+  const goBlockCalendarNext = () => {
+    setCalendarView((cv) => {
+      let { y, m } = cv;
+      m += 1;
+      if (m > 11) {
+        m = 0;
+        y += 1;
+      }
+      return { y, m };
+    });
+  };
 
   return (
     <div className="page">
@@ -701,9 +765,7 @@ export default function BarberDashboard({ displayName = "Ramad" }: { displayName
             {requests.length === 0 && changes.length === 0 ? (
               <div className="empty-informative">
                 <Eyebrow>All caught up</Eyebrow>
-                <div style={{ fontSize: 14, color: "var(--text-2)" }}>
-                  You&apos;ve responded to every request this week. Average response time: <b className="foil">8 min</b>.
-                </div>
+                <div style={{ fontSize: 14, color: "var(--text-2)" }}>You&apos;ve responded to every request this week.</div>
               </div>
             ) : null}
 
@@ -1039,18 +1101,18 @@ export default function BarberDashboard({ displayName = "Ramad" }: { displayName
             Block days
           </h2>
           <div style={{ color: "var(--text-3)", fontSize: 12, marginTop: 6 }}>
-            Click any day to toggle. Local blocking only for v1.
+            Click any day to block or unblock. Changes are saved automatically.
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <button type="button" className="btn btn-sm">
+          <button type="button" className="btn btn-sm" onClick={goBlockCalendarPrev}>
             <Icon name="chevronL" size={12} />
             Prev
           </button>
           <div className="mono" style={{ padding: "0 16px", fontWeight: 700, letterSpacing: ".16em" }}>
-            APRIL 2026
+            {blockCalendarHeading}
           </div>
-          <button type="button" className="btn btn-sm">
+          <button type="button" className="btn btn-sm" onClick={goBlockCalendarNext}>
             Next
             <Icon name="chevronR" size={12} />
           </button>
@@ -1060,23 +1122,44 @@ export default function BarberDashboard({ displayName = "Ramad" }: { displayName
       <div className="enter" style={{ animationDelay: ".4s" }}>
         <div className="cal-head">{["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => <div key={d}>{d}</div>)}</div>
         <div className="cal-grid">
-          {month.map((c, i) => {
-            if (c.muted) return <div key={i} className="cal-day muted" />;
-            const b = c.bookings || 0;
+          {blockMonthGrid.map((c, i) => {
+            const { y: cy, m: cm } = calendarView;
+            const dayKey = `${cy}-${cm}-${c.n}`;
+            if (c.muted) return <div key={`m-${cy}-${cm}-${i}`} className="cal-day muted" />;
+            const cellDate = new Date(cy, cm, c.n);
+            const isSunday = cellDate.getDay() === 0;
+            const jToday = getJohannesburgCalendarDateParts(new Date());
+            const isCellToday = cy === jToday.y && cm === jToday.m && c.n === jToday.day;
+            const isPast = isCalendarDayBeforeJohannesburgToday(cy, cm, c.n, jToday);
+            const iso = `${cy}-${String(cm + 1).padStart(2, "0")}-${String(c.n).padStart(2, "0")}`;
+            const inUpcoming = upcomingByIso.has(iso);
+            const b = inUpcoming ? upcomingByIso.get(iso)! : 0;
             const intensity = b >= 5 ? "booked-heavy" : b >= 2 ? "booked-light" : "";
-            const cls = c.blocked ? "blocked" : intensity;
+            const cls = isSunday ? "muted" : c.blocked ? "blocked" : intensity;
+            const greyClosed = isSunday ? { opacity: 0.45 } : undefined;
+            const showBars = !isSunday && !isPast && !c.blocked && inUpcoming && b > 0;
+            const barFilled = Math.min(b, 6);
             return (
-              <div key={i} className={`cal-day ${cls}${c.today ? " today" : ""}`} onClick={() => toggleBlock(i)}>
+              <div
+                key={dayKey}
+                className={`cal-day ${cls}${isCellToday ? " today" : ""}`}
+                style={greyClosed}
+                onClick={isSunday ? undefined : () => toggleBlock(i)}
+              >
                 <div>{c.n}</div>
                 <div>
-                  {c.blocked ? (
+                  {isSunday ? (
+                    <div className="mono" style={{ fontSize: 9, color: "var(--text-3)", letterSpacing: ".14em" }}>
+                      CLOSED
+                    </div>
+                  ) : c.blocked ? (
                     <div className="mono" style={{ fontSize: 9, letterSpacing: ".14em" }}>
                       BLOCKED
                     </div>
-                  ) : b > 0 ? (
+                  ) : showBars ? (
                     <div className="cal-bar">
                       {Array.from({ length: 6 }).map((_, j) => (
-                        <span key={j} className={j < b ? "f" : ""} />
+                        <span key={j} className={j < barFilled ? "f" : ""} />
                       ))}
                     </div>
                   ) : null}

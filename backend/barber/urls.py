@@ -42,6 +42,8 @@ urlpatterns = [
     path('customer-notes/<int:customer_id>/', staff_views.customer_notes),
     path('customers/<str:phone>/birthday/', staff_views.customer_profile_birthday),
 
+    path('available-slots/', booking_views.available_slots, name='available_slots'),
+
     # Booking URLs with Google Calendar integration
     path('bookings/', booking_views.create_booking, name='create_booking'),
     path('bookings/user/', booking_views.get_user_bookings, name='get_user_bookings'),
